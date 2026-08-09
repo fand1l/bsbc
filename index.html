@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="uk" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Кресало К1 — кишеньковий комп’ютер на Linux</title>
+<meta name="description" content="Кишеньковий комп’ютер на Linux з фізичною клавіатурою: знімний акумулятор, відкриті схеми, шість гвинтів до повного розбирання. Вигаданий продукт, демонстраційний сайт.">
+<meta name="color-scheme" content="light dark">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css">
+
+<script>document.documentElement.className = 'js';</script>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js" } }
+</script>
+<script type="module">
+  /* Модуль виконується і з file:// — імпорт із CDN проходить, бо unpkg і jsdelivr
+     віддають Access-Control-Allow-Origin: *. Якщо мережі немає, THREE лишається
+     невизначеним, і сторінка показує плоску схему замість 3D. */
+  const sources = ['three', 'https://unpkg.com/three@0.185.1/build/three.module.js'];
+  for (const src of sources) {
+    try { window.THREE = await import(src); break; } catch (e) { /* наступне джерело */ }
+  }
+  window.dispatchEvent(new Event('three:ready'));
+</script>
+<script src="app.js" defer></script>
+</head>
+
+<body>
+<a class="skip" href="#main">Перейти до вмісту</a>
+
+<header class="hdr">
+  <a class="wordmark" href="#main">
+    <span>Кресало</span>
+    <svg class="torx" viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" focusable="false">
+      <circle cx="10" cy="10" r="9" class="torx__head"/>
+      <g class="torx__slot">
+        <rect x="4.2" y="8.6" width="11.6" height="2.8" rx="1.2"/>
+        <rect x="4.2" y="8.6" width="11.6" height="2.8" rx="1.2" transform="rotate(60 10 10)"/>
+        <rect x="4.2" y="8.6" width="11.6" height="2.8" rx="1.2" transform="rotate(120 10 10)"/>
+      </g>
+    </svg>
+    <span>К1</span>
+  </a>
+  <a class="btn btn--sm" href="#price">Передзамовити</a>
+</header>
+
+<main id="main">
+
+  <!-- 1. Герой -->
+  <section class="section hero">
+    <h1 class="hero__name">Кресало К1</h1>
+    <p class="hero__lead">Кишеньковий комп’ютер на Linux: справжня клавіатура, знімний акумулятор
+      і схеми, які можна прочитати.</p>
+
+    <p class="hero__acts">
+      <a class="btn" href="#scene">Розібрати К1</a>
+      <a class="btn btn--ghost" href="#price">Передзамовити за 1 000 ₴</a>
+    </p>
+
+    <dl class="figs">
+      <div class="fig"><dd class="fig__v">14 годин</dd><dt class="fig__k">роботи від одного акумулятора</dt></div>
+      <div class="fig"><dd class="fig__v">40 секунд</dd><dt class="fig__k">на заміну акумулятора руками</dt></div>
+      <div class="fig"><dd class="fig__v">6 гвинтів</dd><dt class="fig__k">і пристрій відкритий</dt></div>
+      <div class="fig"><dd class="fig__v">318 г</dd><dt class="fig__k">разом з акумулятором</dt></div>
+    </dl>
+  </section>
+
+  <!-- 2. Сцена розбирання -->
+  <section class="scene" id="scene" aria-labelledby="scene-h">
+    <h2 class="vh" id="scene-h">Розбирання: шість шарів</h2>
+
+    <div class="track" id="track">
+      <div class="stage" id="stage">
+        <a class="skip-track" href="#specs">Пропустити розбирання — до характеристик</a>
+
+        <div class="vis" id="vis" aria-hidden="true">
+          <canvas class="vis__cv" id="cv"></canvas>
+
+          <!-- Плоска схема: показується, якщо three.js або WebGL недоступні -->
+          <div class="flat" id="flat">
+            <div class="flat__p" data-i="0"><b>01</b> екран</div>
+            <div class="flat__p" data-i="1"><b>02</b> клавіатура</div>
+            <div class="flat__p" data-i="2"><b>03</b> плата</div>
+            <div class="flat__p" data-i="3"><b>04</b> акумулятор</div>
+            <div class="flat__p" data-i="4"><b>05</b> радіатор</div>
+            <div class="flat__p" data-i="5"><b>06</b> корпус</div>
+          </div>
+
+        </div>
+
+        <svg class="lead" id="lead" focusable="false" aria-hidden="true">
+          <polyline id="lead-line" points=""/>
+          <circle id="lead-ring" r="7"/>
+          <circle id="lead-dot" r="2.5"/>
+        </svg>
+
+        <div class="cards" id="cards">
+          <article class="card" data-i="0">
+            <p class="card__no">01</p>
+            <h3 class="card__t">Екран</h3>
+            <p class="card__d">Матовий. Опівдні на сонці текст видно, долонею затуляти не треба.</p>
+            <p class="card__tech">4,3″ · 1280×720 · 800 кд/м²</p>
+          </article>
+          <article class="card" data-i="1">
+            <p class="card__no">02</p>
+            <h3 class="card__t">Клавіатура</h3>
+            <p class="card__d">Механічні перемикачі. Натиск чути пальцем, тому друкуєш і в рукавичках.</p>
+            <p class="card__tech">62 клавіші · хід 1,2 мм · підсвічування</p>
+          </article>
+          <article class="card" data-i="2">
+            <p class="card__no">03</p>
+            <h3 class="card__t">Плата</h3>
+            <p class="card__d"><span lang="en">GPIO</span> виведені на край — свою периферію
+              підключаєш без паяння. Схеми лежать у відкритому репозиторії.</p>
+            <p class="card__tech">8 ядер <span lang="en">ARM64</span> · 16 ГБ <span lang="en">RAM</span> · 256 ГБ <span lang="en">NVMe</span></p>
+          </article>
+          <article class="card" data-i="3">
+            <p class="card__no">04</p>
+            <h3 class="card__t">Акумулятор</h3>
+            <p class="card__d">Міняєш акумулятор за 40 секунд. Руками, без викрутки.</p>
+            <p class="card__tech">6 000 мА·год · заміна без інструменту</p>
+          </article>
+          <article class="card" data-i="4">
+            <p class="card__no">05</p>
+            <h3 class="card__t">Радіатор</h3>
+            <p class="card__d">Тепло йде в мідну пластину і далі в корпус. Вентилятора немає:
+              ні шуму, ні пилу всередині.</p>
+            <p class="card__tech">Мідь · пасивне охолодження</p>
+          </article>
+          <article class="card" data-i="5">
+            <p class="card__no">06</p>
+            <h3 class="card__t">Корпус</h3>
+            <p class="card__d">Розкручується шістьма звичайними гвинтами <span lang="en">Torx T6</span>.
+              Ніякого клею й защіпок.</p>
+            <p class="card__tech">Алюміній · <span lang="en">IP54</span> · 6 гвинтів</p>
+          </article>
+        </div>
+
+        <nav class="screws" id="screws" aria-label="Шари пристрою"></nav>
+
+        <p class="vh" role="status" aria-live="polite" id="ann"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Характеристики -->
+  <section class="section section--light" id="specs">
+    <h2 class="h2">Характеристики</h2>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <caption class="vh">Технічні характеристики Кресало К1</caption>
+        <tbody>
+          <tr><th scope="row">Процесор</th><td>8 ядер <span lang="en">ARM64</span>, 2,4 ГГц</td></tr>
+          <tr><th scope="row">Пам’ять</th><td>16 ГБ <span lang="en">LPDDR5</span>, розпаяна на платі</td></tr>
+          <tr><th scope="row">Накопичувач</th><td>256 ГБ <span lang="en">NVMe</span>, слот <span lang="en">M.2 2230</span>, міняється</td></tr>
+          <tr><th scope="row">Екран</th><td>4,3″, 1280×720, матовий, 800 кд/м²</td></tr>
+          <tr><th scope="row">Клавіатура</th><td>62 клавіші, механічна, хід 1,2 мм, підсвічування</td></tr>
+          <tr><th scope="row">Акумулятор</th><td>6 000 мА·год, знімний, до 14 годин роботи</td></tr>
+          <tr><th scope="row">Заряджання</th><td><span lang="en">USB-C PD</span>, 45 Вт, від 0 до 80 % за 50 хвилин</td></tr>
+          <tr><th scope="row">Порти</th><td>2×<span lang="en">USB-C</span>, <span lang="en">microSD</span>, 3,5 мм, гребінка <span lang="en">GPIO</span> на 40 контактів</td></tr>
+          <tr><th scope="row">Зв’язок</th><td><span lang="en">Wi-Fi 6E</span>, <span lang="en">Bluetooth 5.3</span>, слот <span lang="en">nano-SIM</span> (<span lang="en">LTE</span>)</td></tr>
+          <tr><th scope="row">Охолодження</th><td>пасивне, мідна пластина, без вентилятора</td></tr>
+          <tr><th scope="row">Корпус</th><td>фрезерований алюміній, <span lang="en">IP54</span></td></tr>
+          <tr><th scope="row">Розміри</th><td>148 × 82 × 19 мм</td></tr>
+          <tr><th scope="row">Вага</th><td>318 г з акумулятором</td></tr>
+          <tr><th scope="row">Розбирання</th><td>6 гвинтів <span lang="en">Torx T6</span></td></tr>
+          <tr><th scope="row">Система</th><td><span lang="en">Debian 13</span>, ядро 6.12; завантажувач розблокований</td></tr>
+          <tr><th scope="row">Гарантія</th><td>24 місяці; розбирання її не скасовує</td></tr>
+          <tr><th scope="row">Документація</th><td>схеми, специфікація плати, 3D-моделі корпусу (<span lang="en">CC BY-SA</span>)</td></tr>
+          <tr><th scope="row">Запчастини</th><td>акумулятор, клавіатура, екран продаються окремо</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 4. Ціна і передзамовлення -->
+  <section class="section section--dark" id="price">
+    <h2 class="h2">Ціна і передзамовлення</h2>
+
+    <div class="price">
+      <p class="price__v">29 900 ₴</p>
+      <div class="price__txt">
+        <p>Передзамовлення — 1 000 ₴. Ця сума входить у ціну, а не додається до неї.</p>
+        <p>Відвантаження — з березня 2027. Завдаток повертається повністю в будь-який момент
+          до відправлення.</p>
+        <p>У коробці: пристрій, акумулятор, кабель <span lang="en">USB-C</span>,
+          ключ <span lang="en">Torx T6</span> і схема плати на аркуші <span lang="en">А3</span>.</p>
+      </div>
+    </div>
+
+    <form class="form" id="form" novalidate>
+      <label class="form__lab" for="mail">Пошта</label>
+      <input class="form__in" id="mail" name="mail" type="email" inputmode="email"
+             autocomplete="email" spellcheck="false" placeholder="ти@пошта.ua">
+      <button class="btn btn--wide" type="submit">Оформити передзамовлення</button>
+      <p class="form__note">Сайт демонстраційний — кнопка нічого не надсилає й нікуди не веде.</p>
+      <p class="form__out" id="formOut" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <p>Вигаданий продукт. Демонстраційний сайт.</p>
+  <p>Характеристики, ціни й строки вигадані. Передзамовлення не приймаються.</p>
+  <p><span lang="en">HTML</span>, <span lang="en">CSS</span>, <span lang="en">three.js</span>.
+    Без збірки і без залежностей, крім <span lang="en">three</span>.</p>
+</footer>
+
+</body>
+</html>
