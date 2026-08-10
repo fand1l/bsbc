@@ -504,6 +504,57 @@ a { color: inherit; }
 .no3d .vis__cv { display: none; }
 .no3d .lead { display: none; }
 
+/* --- 11a. Клавіатура зблизька ------------------------------------------ */
+.kb__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: clamp(20px, 4vw, 56px);
+  align-items: center;
+}
+
+/* висота зарезервована наперед, щоб canvas не смикнув розкладку при старті */
+.kb__vis {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background: var(--mask-deep);
+  border-radius: var(--r-in);
+  overflow: hidden;
+}
+
+.kb__cv { inline-size: 100%; block-size: 100%; }
+
+.kb__vis::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 100% at 50% 45%, transparent 58%, var(--mask-deep) 100%);
+}
+
+.fx-off .kb__vis::after { display: none; }
+
+.kb__lead { font-size: clamp(17px, 1.9vw, 21px); line-height: 1.45; }
+
+.kb__txt > p + p { margin-block-start: 16px; color: var(--silk-mute); }
+
+.kb__facts {
+  display: grid;
+  gap: 14px;
+  margin-block-start: 28px;
+  padding-block-start: 20px;
+  border-block-start: 2px solid var(--copper);
+}
+
+.kb__fact { display: flex; flex-direction: column; gap: 4px; }
+
+.kb__fact > dd {
+  font: 400 clamp(19px, 2.2vw, 25px)/1 var(--font-data);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.kb__fact > dt { font-size: 13px; color: var(--silk-mute); }
+
 /* --- 12. Таблиця -------------------------------------------------------- */
 .tbl-wrap { overflow-x: auto; }
 
@@ -669,6 +720,10 @@ a { color: inherit; }
 }
 
 /* Телефон */
+@media (max-width: 900px) {
+  .kb__grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (max-width: 640px) {
   .figs { grid-template-columns: repeat(2, 1fr); }
 

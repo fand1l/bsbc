@@ -107,6 +107,7 @@
       three.rim.intensity = dark ? 0.5 : 0.7;
       three.hemi.intensity = dark ? 0.35 : 0.6;
     }
+    if (kb) kb.renderer.toneMappingExposure = isDark() ? 0.95 : 1.15;
     dirty = true;
     wake();
   }
@@ -143,6 +144,7 @@
       three.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCapNow));
       three.renderer.setSize(visW, visH, false);
     }
+    if (kb) kb.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, fxOn ? 2 : 1));
     dirty = true;
     wake();
   }
@@ -559,6 +561,21 @@
     return t;
   }
 
+  /* Коробка з фаскою по всіх ребрах. Саме фаска ловить світло вузькою
+     смужкою — це те, за чим око впізнає фрезероване з металу. */
+  function chamfer(THREE, w, h, d, c) {
+    var sh = new THREE.Shape();
+    var hw = w / 2 - c, hd = d / 2 - c;
+    sh.moveTo(-hw, -hd); sh.lineTo(hw, -hd); sh.lineTo(hw, hd); sh.lineTo(-hw, hd); sh.closePath();
+    var g = new THREE.ExtrudeGeometry(sh, {
+      depth: Math.max(0.001, h - 2 * c), bevelEnabled: true,
+      bevelSize: c, bevelThickness: c, bevelSegments: 1, curveSegments: 1, steps: 1
+    });
+    g.rotateX(-Math.PI / 2);
+    g.translate(0, -h / 2 + c, 0);
+    return g;
+  }
+
   /* --- 8. Сцена --------------------------------------------------------- */
   function noThree() {
     root.classList.add('no3d');
@@ -634,20 +651,7 @@
       layerMats.push(list);
     }
 
-    /* Коробка з фаскою по всіх ребрах. Саме фаска ловить світло вузькою
-       смужкою — це те, за чим око впізнає фрезероване з металу. */
-    function chamferGeo(w, h, d, c) {
-      var sh = new THREE.Shape();
-      var hw = w / 2 - c, hd = d / 2 - c;
-      sh.moveTo(-hw, -hd); sh.lineTo(hw, -hd); sh.lineTo(hw, hd); sh.lineTo(-hw, hd); sh.closePath();
-      var g = new THREE.ExtrudeGeometry(sh, {
-        depth: Math.max(0.001, h - 2 * c), bevelEnabled: true,
-        bevelSize: c, bevelThickness: c, bevelSegments: 1, curveSegments: 1, steps: 1
-      });
-      g.rotateX(-Math.PI / 2);
-      g.translate(0, -h / 2 + c, 0);
-      return g;
-    }
+    function chamferGeo(w, h, d, c) { return chamfer(THREE, w, h, d, c); }
 
     function part(w, h, d, mat, x, y, z, c) {
       var m = new THREE.Mesh(chamferGeo(w, h, d, c === undefined ? Math.min(0.012, h * 0.3) : c), mat);
@@ -973,6 +977,125 @@
     if (running) wake();
   }
 
+  /* --- 8a. Друга сцена: клавіатура зблизька -----------------------------
+     Свій рендерер, а не спільний з розбиранням. Спільний із розрізанням кадру
+     на області був би економнішим по пам'яті, але вимагав би переписати вже
+     робочу сцену. Контекст створюється лише коли секція входить у видиму
+     частину і стає на паузу, коли виходить. */
+  var kbSec = document.getElementById('keyboard');
+  var kbCv  = document.getElementById('kbcv');
+  var kb = null, kbRaf = 0, kbSeen = false;
+
+  function kbBuild(THREE) {
+    var renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas: kbCv, alpha: true, antialias: true });
+    } catch (e) { return null; }
+    renderer.setClearAlpha(0);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = isDark() ? 0.95 : 1.15;
+
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(34, 1.6, 0.05, 40);
+
+    var pmrem = new THREE.PMREMGenerator(renderer);
+    var et = envTexture(THREE);
+    scene.environment = pmrem.fromEquirectangular(et).texture;
+    et.dispose(); pmrem.dispose();
+
+    var key = new THREE.DirectionalLight(0xFFF6EC, 1.6); key.position.set(2.2, 3.4, 2.6);
+    var fill = new THREE.DirectionalLight(0xC9773F, 0.5); fill.position.set(-2.4, 0.6, -1.8);
+    scene.add(key, fill, new THREE.HemisphereLight(0xE7E4DC, 0x241C33, 0.45));
+
+    var matPlate = new THREE.MeshStandardMaterial({ color: 0x7D827E, metalness: 0.62, roughness: 0.5 });
+    var matKey   = new THREE.MeshStandardMaterial({ color: 0x24272B, metalness: 0.1, roughness: 0.52 });
+    scene.add(new THREE.Mesh(chamfer(THREE, 3.86, 0.028, 1.02, 0.012), matPlate));
+
+    // підсвітка світить із-під клавіш і видно її саме в зазорах між ними
+    var lit = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.7, 0.95),
+      new THREE.MeshBasicMaterial({
+        map: glowTexture(THREE), transparent: true, depthWrite: false,
+        blending: THREE.AdditiveBlending, color: 0xC9773F, opacity: 0, toneMapped: false
+      })
+    );
+    lit.rotation.x = -Math.PI / 2;
+    lit.position.set(0, 0.020, 0.52);
+    scene.add(lit);
+
+    var keys = new THREE.InstancedMesh(chamfer(THREE, 0.235, 0.060, 0.150, 0.016), matKey, 62);
+    var cols = [], d = new THREE.Object3D(), n = 0;
+    for (var r = 0; r < 5 && n < 62; r++) {
+      for (var c = 0; c < 13 && n < 62; c++) {
+        cols.push({ x: -1.72 + c * 0.2867, z: 0.17 + r * 0.190, c: c });
+        n++;
+      }
+    }
+    scene.add(keys);
+
+    return { renderer: renderer, scene: scene, camera: camera, keys: keys, cols: cols, d: d, lit: lit };
+  }
+
+  function kbFrame() {
+    kbRaf = requestAnimationFrame(kbFrame);
+    if (!kb) return;
+
+    var r = kbSec.getBoundingClientRect();
+    var vh = window.innerHeight || 800;
+    var q = clamp((vh - r.top) / (vh + r.height), 0, 1);
+
+    var w = Math.max(1, Math.round(kbCv.clientWidth));
+    var h = Math.max(1, Math.round(kbCv.clientHeight));
+    if (kbCv.width !== Math.round(w * kb.renderer.getPixelRatio())) {
+      kb.renderer.setSize(w, h, false);
+      kb.camera.aspect = w / h;
+      kb.camera.updateProjectionMatrix();
+    }
+
+    // повільна панорама вздовж клавіатури, прив'язана до прокрутки секції
+    var cx = -1.15 + q * 1.7;
+    kb.camera.position.set(cx - 0.28, 0.78, 1.78);
+    kb.camera.lookAt(cx + 0.16, 0.02, 0.54);
+
+    // хвиля натискань і підсвітка; під reduced-motion клавіші стоять
+    var t = reduced ? 0 : performance.now() / 1000;
+    for (var i = 0; i < kb.cols.length; i++) {
+      var k = kb.cols[i];
+      var press = reduced ? 0 : Math.max(0, Math.sin(t * 1.6 - k.c * 0.42)) ;
+      press = press > 0.78 ? (press - 0.78) / 0.22 : 0;
+      kb.d.position.set(k.x, 0.044 - press * 0.030, k.z);
+      kb.d.updateMatrix();
+      kb.keys.setMatrixAt(i, kb.d.matrix);
+    }
+    kb.keys.instanceMatrix.needsUpdate = true;
+    kb.lit.material.opacity = fxOn ? 0.30 + 0.22 * Math.sin(t * 0.7) * Math.sin(t * 0.7) : 0;
+
+    kb.renderer.render(kb.scene, kb.camera);
+  }
+
+  function kbStart() {
+    if (!window.THREE || kbRaf) return;
+    if (!kb) {
+      kb = kbBuild(window.THREE);
+      if (!kb) return;
+      kb.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, fxOn ? 2 : 1));
+    }
+    kbRaf = requestAnimationFrame(kbFrame);
+  }
+
+  function kbStop() { if (kbRaf) { cancelAnimationFrame(kbRaf); kbRaf = 0; } }
+
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (es) {
+      kbSeen = es[0].isIntersecting;
+      if (kbSeen && !document.hidden) kbStart(); else kbStop();
+    }, { rootMargin: '200px' }).observe(kbSec);
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) kbStop(); else if (kbSeen) kbStart();
+  });
+
   /* --- 9. Старт --------------------------------------------------------- */
   labelTheme();
   applyFx();
@@ -980,8 +1103,8 @@
   measure();
   wake();
 
-  if (window.THREE) initThree();
-  else window.addEventListener('three:ready', initThree, { once: true });
+  if (window.THREE) { initThree(); if (kbSeen) kbStart(); }
+  else window.addEventListener('three:ready', function () { initThree(); if (kbSeen) kbStart(); }, { once: true });
 
   setTimeout(function () { if (!three && !root.classList.contains('no3d')) noThree(); }, 4000);
 })();
