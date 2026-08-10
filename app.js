@@ -1295,9 +1295,111 @@
 
   window.addEventListener('resize', ptMeasure);
 
+  /* --- 8c. Рух у 2D ------------------------------------------------------
+     Три речі: поява блоків, дорахунок цифр і мірна лінійка. Усе через
+     IntersectionObserver і один rAF — жодних обчислень в обробнику скролу. */
+  var REVEAL = '.h2, .hero__lead, .hero__acts, .figs, .kb__lead, .kb__facts, ' +
+               '.pt__lead, .pt__labs, .rp__lead, .cmp__lead, .tbl-wrap, .price, .form';
+
+  function initReveal() {
+    if (!('IntersectionObserver' in window)) return;
+    var vh = window.innerHeight || 800;
+    var io = new IntersectionObserver(function (es) {
+      for (var i = 0; i < es.length; i++) {
+        if (!es[i].isIntersecting) continue;
+        es[i].target.setAttribute('data-in', '');
+        io.unobserve(es[i].target);
+      }
+    }, { rootMargin: '0px 0px -8% 0px' });
+
+    var nodes = document.querySelectorAll(REVEAL);
+    for (var i = 0; i < nodes.length; i++) {
+      // те, що вже в кадрі на завантаженні, не ховаємо взагалі — інакше
+      // сторінка блимне порожнечею, поки не спрацює спостерігач
+      if (nodes[i].getBoundingClientRect().top > vh * 0.92) {
+        nodes[i].classList.add('reveal');
+        io.observe(nodes[i]);
+      }
+    }
+  }
+
+  /* Дорахунок цифр. Тільки там, де значення ціле: «1,2 мм» рахувати нема сенсу,
+     а розряди тисяч мусять лишитися з нерозривним пробілом. */
+  function initCount() {
+    var nodes = document.querySelectorAll('.fig__v, .price__v');
+    if (!nodes.length) return;
+
+    function fmt(n) {
+      var t = String(n), out = '', c = 0;
+      for (var i = t.length - 1; i >= 0; i--) {
+        out = t.charAt(i) + out;
+        if (++c % 3 === 0 && i > 0) out = '\u00A0' + out;
+      }
+      return out;
+    }
+
+    var io = ('IntersectionObserver' in window) ? new IntersectionObserver(function (es) {
+      for (var i = 0; i < es.length; i++) if (es[i].isIntersecting) { run(es[i].target); io.unobserve(es[i].target); }
+    }, { rootMargin: '0px 0px -10% 0px' }) : null;
+
+    function run(el) {
+      var target = +el.getAttribute('data-n');
+      var tail = el.getAttribute('data-tail') || '';
+      if (reduced) { el.textContent = fmt(target) + tail; return; }
+      var t0 = performance.now(), dur = 750, done = false;
+      function finish() { if (!done) { done = true; el.textContent = fmt(target) + tail; } }
+      // Запобіжник: якщо кадри перестали приходити — вкладка сховалась, пристрій
+      // ледь тягне — цифра не має лишитися недорахованою.
+      setTimeout(finish, dur + 400);
+      (function step(now) {
+        if (done) return;
+        var u = clamp((now - t0) / dur, 0, 1);
+        if (u >= 1) { finish(); return; }
+        el.textContent = fmt(Math.round(target * (1 - Math.pow(1 - u, 3)))) + tail;
+        requestAnimationFrame(step);
+      })(t0);
+    }
+
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var m = el.textContent.match(/^([\d\u00A0 ]*\d)([\s\S]*)$/);
+      if (!m) continue;
+      el.setAttribute('data-n', m[1].replace(/\D/g, ''));
+      el.setAttribute('data-tail', m[2]);
+      if (io && el.getBoundingClientRect().top > (window.innerHeight || 800)) {
+        el.textContent = '0' + m[2];
+        io.observe(el);
+      } else {
+        run(el);
+      }
+    }
+  }
+
+  /* Мірна лінійка: обробник скролу лише просить кадр, пише — rAF. */
+  var ruler = document.getElementById('ruler');
+  var rulerQueued = false;
+
+  function drawRuler() {
+    rulerQueued = false;
+    var doc = document.documentElement;
+    var max = doc.scrollHeight - doc.clientHeight;
+    ruler.style.setProperty('--p', max > 0 ? (window.scrollY / max).toFixed(4) : '0');
+  }
+
+  window.addEventListener('scroll', function () {
+    if (rulerQueued) return;
+    rulerQueued = true;
+    requestAnimationFrame(drawRuler);
+  }, { passive: true });
+
+  window.addEventListener('resize', drawRuler);
+  drawRuler();
+
   /* --- 9. Старт --------------------------------------------------------- */
   labelTheme();
   applyFx();
+  initReveal();
+  initCount();
   setActive(0);
   measure();
   wake();

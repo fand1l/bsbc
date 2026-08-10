@@ -756,6 +756,52 @@ a { color: inherit; }
 .foot > p + p { margin-block-start: 8px; }
 .foot > p:first-child { color: var(--silk); }
 
+/* --- 14a. Рух ------------------------------------------------------------
+   Клас .reveal навішує JS і лише на те, що ще не потрапило в кадр. Тому без
+   JS не ховається нічого, а те, що вже видно на завантаженні, не блимає. */
+.reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 420ms ease-out, transform 420ms ease-out;
+}
+
+.reveal[data-in] { opacity: 1; transform: none; }
+
+/* Мірна лінійка: чисто декоративна, тому й aria-hidden. Позицію на сторінці
+   вже показує смуга прокрутки — це про відчуття приладу, не про навігацію. */
+.ruler {
+  position: fixed;
+  inset-block: var(--hdr) 0;
+  inset-inline-start: 10px;
+  inline-size: 22px;
+  z-index: 20;
+  pointer-events: none;
+  color: var(--copper-ink);
+  display: none;
+}
+
+.ruler__ticks {
+  position: absolute;
+  inset-block: 8px;
+  inset-inline-start: 0;
+  inline-size: 14px;
+  opacity: 0.26;
+  /* короткі поділки часто, довгі — кожні п'ять, як на справжній лінійці */
+  background:
+    repeating-linear-gradient(to bottom, currentColor 0 1px, transparent 1px 110px) 0 0 / 14px 100% no-repeat,
+    repeating-linear-gradient(to bottom, currentColor 0 1px, transparent 1px 22px) 0 0 / 7px 100% no-repeat;
+}
+
+.ruler__mark {
+  position: absolute;
+  inset-inline-start: 0;
+  inline-size: 20px;
+  block-size: 2px;
+  background: var(--copper-ink);
+  inset-block-start: calc(8px + var(--p, 0) * (100% - 16px));
+  transform: translateY(-50%);
+}
+
 /* --- 15. Утиліти -------------------------------------------------------- */
 .vh {
   position: absolute;
@@ -842,6 +888,10 @@ a { color: inherit; }
   .tbl--cols tbody th { inline-size: auto; }
 }
 
+@media (min-width: 1240px) {
+  .ruler { display: block; }
+}
+
 /* Найвужчі екрани: у шапці тепер троє, тож стискаємо їх, а не переносимо */
 @media (max-width: 380px) {
   .hdr { gap: 6px; }
@@ -887,6 +937,7 @@ a { color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .card { transition-duration: 1ms; }
+  .reveal { opacity: 1; transform: none; transition: none; }
   .fxsw__knob { transition: none; }
   .skip-track { transition: none; }
   .btn { transition: none; }
