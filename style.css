@@ -123,8 +123,6 @@ a { color: inherit; }
   max-width: var(--wrap);
 }
 
-.section--light { background: var(--case); }
-
 .section--dark {
   --bg: var(--mask);
   --fg: var(--silk);
@@ -239,7 +237,10 @@ a { color: inherit; }
 
 .fig {
   display: flex;
-  flex-direction: column;
+  /* у джерелі dt іде перед dd, як вимагає модель вмісту <dl>;
+     реверс лишає на екрані звичний порядок «цифра, під нею підпис» */
+  flex-direction: column-reverse;
+  justify-content: end;
   gap: 6px;
   padding: 18px 18px 0 0;
   border-inline-start: 1px solid var(--edge);
@@ -345,7 +346,13 @@ a { color: inherit; }
 
 .btn--ghost:hover { background: var(--ink); color: var(--case); }
 
-.btn--sm { min-block-size: 44px; padding-inline: 14px; font-size: 14px; }
+/* Власна тінь кнопки-привида оголошена пізніше за спільний :focus-visible і з
+   тією самою вагою, тож гасила індикатор фокуса. Повертаємо його явно. */
+.btn--ghost:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ink), 0 0 0 4px var(--fx-light), 0 0 0 6px var(--copper);
+}
+
+.btn--sm { padding-inline: 14px; font-size: 14px; }
 
 .btn--wide { inline-size: 100%; }
 
@@ -354,7 +361,7 @@ a { color: inherit; }
 
 .track {
   block-size: 5600px;
-  block-size: clamp(3000px, 640svh, 6000px);
+  block-size: clamp(3000px, 640svh, 700svh);
 }
 
 .stage {
@@ -554,7 +561,7 @@ a { color: inherit; }
   border-block-start: 2px solid var(--copper);
 }
 
-.kb__fact { display: flex; flex-direction: column; gap: 4px; }
+.kb__fact { display: flex; flex-direction: column-reverse; justify-content: end; gap: 4px; }
 
 .kb__fact > dd {
   font: 400 clamp(19px, 2.2vw, 25px)/1 var(--font-data);
@@ -609,7 +616,6 @@ a { color: inherit; }
 
 .pt__lab > b {
   font: 500 clamp(15px, 1.7vw, 19px)/1.2 var(--font-data);
-  font-weight: 500;
   letter-spacing: -0.01em;
 }
 
@@ -623,12 +629,13 @@ a { color: inherit; }
   pointer-events: none;
 }
 
-.pt__wire line,
 .pt__wire polyline { fill: none; stroke: var(--copper-ink); stroke-width: 1.5; }
-.pt__wire circle { fill: none; stroke: var(--copper-ink); stroke-width: 1.5; }
+/* кільце сидить на темній панелі, а --copper-ink призначений для світлого */
+.pt__wire circle { fill: none; stroke: var(--copper); stroke-width: 1.5; }
 
 /* --- 12. Таблиця -------------------------------------------------------- */
 .tbl-wrap { overflow-x: auto; }
+.tbl-wrap:focus-visible { outline-offset: 2px; }
 
 .tbl { inline-size: 100%; border-collapse: collapse; text-align: start; }
 
@@ -645,7 +652,6 @@ a { color: inherit; }
   font: 500 13px/1.4 var(--font-data);
   letter-spacing: 0.02em;
   color: var(--fg-dim);
-  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -865,7 +871,6 @@ a { color: inherit; }
 
   .screw__g { transform: scale(calc(1 + var(--u) * 0.2)); }
 
-  .skip-track { position: static; transform: none; display: none; }
 }
 
 /* Телефон */
@@ -886,6 +891,7 @@ a { color: inherit; }
 
   .tbl th { inline-size: auto; white-space: normal; }
   .tbl--cols tbody th { inline-size: auto; }
+  .tbl--cols td { white-space: normal; }
 }
 
 @media (min-width: 1240px) {
@@ -928,7 +934,14 @@ a { color: inherit; }
    пристрій показано зібраним, а всі шість шарів просто списком. */
 @media (max-height: 330px) {
   .track { block-size: auto; }
-  .stage { position: static; block-size: auto; grid-template-columns: minmax(0, 1fr); }
+  .stage {
+    position: static;
+    block-size: auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+  }
+  /* альбомний блок вище розставляє елементи явно — тут це треба скинути */
+  .vis, .cards { grid-area: auto; }
   .vis { block-size: 220px; }
   .cards { display: block; }
   .card { opacity: 1; visibility: visible; margin-block-end: 14px; }
@@ -943,6 +956,13 @@ a { color: inherit; }
   .btn { transition: none; }
   .screw__g { transition: none; }
   .lead { transition: none; }
+}
+
+/* На друку скролу немає, тож спостерігач ніколи не спрацює: без цього
+   правила невідвідані блоки друкувалися б порожніми. */
+@media print {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .ruler { display: none; }
 }
 
 @media (forced-colors: active) {

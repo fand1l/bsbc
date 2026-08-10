@@ -13,7 +13,6 @@
 <link rel="stylesheet" href="style.css">
 
 <script>
-  document.documentElement.className = 'js';
   /* Тема застосовується до першого малювання, інакше на перезавантаженні
      блимне світлим. Без збереженого вибору діє системна настройка. */
   try {
@@ -85,19 +84,19 @@
     </p>
 
     <p class="fxsw">
-      <span class="fxsw__t">Графіка</span>
+      <span class="fxsw__t" id="fxsw-t">Графіка</span>
       <button class="fxsw__b" id="fx" type="button" role="switch" aria-checked="true"
-              aria-label="Максимальна графіка">
+              aria-labelledby="fxsw-t fxval">
         <span class="fxsw__track" aria-hidden="true"><span class="fxsw__knob"></span></span>
         <span class="fxsw__val" id="fxval">якість</span>
       </button>
     </p>
 
     <dl class="figs">
-      <div class="fig"><dd class="fig__v">14 годин</dd><dt class="fig__k">роботи від одного акумулятора</dt></div>
-      <div class="fig"><dd class="fig__v">40 секунд</dd><dt class="fig__k">на заміну акумулятора руками</dt></div>
-      <div class="fig"><dd class="fig__v">6 гвинтів</dd><dt class="fig__k">і пристрій відкритий</dt></div>
-      <div class="fig"><dd class="fig__v">318 г</dd><dt class="fig__k">разом з акумулятором</dt></div>
+      <div class="fig"><dt class="fig__k">роботи від одного акумулятора</dt><dd class="fig__v">14 годин</dd></div>
+      <div class="fig"><dt class="fig__k">на заміну акумулятора руками</dt><dd class="fig__v">40 секунд</dd></div>
+      <div class="fig"><dt class="fig__k">і пристрій відкритий</dt><dd class="fig__v">6 гвинтів</dd></div>
+      <div class="fig"><dt class="fig__k">разом з акумулятором</dt><dd class="fig__v">318 г</dd></div>
     </dl>
   </section>
 
@@ -107,7 +106,7 @@
 
     <div class="track" id="track">
       <div class="stage" id="stage">
-        <a class="skip-track" href="#specs">Пропустити розбирання — до характеристик</a>
+        <a class="skip-track" href="#keyboard">Пропустити розбирання — до клавіатури</a>
 
         <div class="vis" id="vis" aria-hidden="true">
           <canvas class="vis__cv" id="cv"></canvas>
@@ -195,9 +194,9 @@
           Підсвічування має чотири рівні й вимикається повністю.</p>
 
         <dl class="kb__facts">
-          <div class="kb__fact"><dd>1,2 мм</dd><dt>хід клавіші</dt></div>
-          <div class="kb__fact"><dd>62</dd><dt>клавіші, з повним рядом цифр</dt></div>
-          <div class="kb__fact"><dd>4 рівні</dd><dt>підсвічування</dt></div>
+          <div class="kb__fact"><dt>хід клавіші</dt><dd>1,2 мм</dd></div>
+          <div class="kb__fact"><dt>клавіші, з повним рядом цифр</dt><dd>62</dd></div>
+          <div class="kb__fact"><dt>підсвічування</dt><dd>4 рівні</dd></div>
         </dl>
       </div>
     </div>
@@ -214,10 +213,10 @@
     <div class="pt__wrap" id="ptwrap">
       <div class="pt__vis" aria-hidden="true"><canvas class="pt__cv" id="ptcv"></canvas></div>
 
-      <ul class="pt__labs">
-        <li class="pt__lab" data-i="0"><b lang="en">USB-C</b><span>зарядка і дані, <span lang="en">PD</span> 45 Вт</span></li>
-        <li class="pt__lab" data-i="1"><b lang="en">microSD</b><span>до 2 ТБ, гаряча заміна</span></li>
-        <li class="pt__lab" data-i="2"><b>3,5 мм</b><span>навушники з мікрофоном</span></li>
+      <ul class="pt__labs" role="list">
+        <li class="pt__lab" role="listitem" data-i="0"><b lang="en">USB-C</b><span>зарядка і дані, <span lang="en">PD</span> 45 Вт</span></li>
+        <li class="pt__lab" role="listitem" data-i="1"><b lang="en">microSD</b><span>до 2 ТБ, гаряча заміна</span></li>
+        <li class="pt__lab" role="listitem" data-i="2"><b>3,5 мм</b><span>навушники з мікрофоном</span></li>
       </ul>
 
       <svg class="pt__wire" id="ptwire" aria-hidden="true" focusable="false"></svg>
@@ -225,9 +224,9 @@
   </section>
 
   <!-- 5. Характеристики -->
-  <section class="section section--light" id="specs">
-    <h2 class="h2">Характеристики</h2>
-    <div class="tbl-wrap">
+  <section class="section section--light" id="specs" aria-labelledby="specs-h">
+    <h2 class="h2" id="specs-h">Характеристики</h2>
+    <div class="tbl-wrap" tabindex="0" role="region" aria-labelledby="specs-h">
       <table class="tbl">
         <caption class="vh">Технічні характеристики Кресало К1</caption>
         <tbody>
@@ -263,7 +262,7 @@
     <p class="rp__note">Не міняється тільки пам’ять: вона розпаяна на платі. Накопичувач —
       звичайний <span lang="en">M.2 2230</span>, ставиш будь-який.</p>
 
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" tabindex="0" role="region" aria-labelledby="rp-h">
       <table class="tbl tbl--cols">
         <caption class="vh">Запчастини, ціни й що потрібно для заміни</caption>
         <thead>
@@ -291,7 +290,7 @@
     <p class="cmp__lead">Чесно: телефон легший і дешевший, ноутбук швидший. Кресало виграє
       рівно там, де важить доступ до власного заліза.</p>
 
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" tabindex="0" role="region" aria-labelledby="cmp-h">
       <table class="tbl tbl--cols">
         <caption class="vh">Кресало К1 проти смартфона й ноутбука</caption>
         <thead>
@@ -315,8 +314,8 @@
   </section>
 
   <!-- 8. Ціна і передзамовлення -->
-  <section class="section section--dark" id="price">
-    <h2 class="h2">Ціна і передзамовлення</h2>
+  <section class="section section--dark" id="price" aria-labelledby="price-h">
+    <h2 class="h2" id="price-h">Ціна і передзамовлення</h2>
 
     <div class="price">
       <p class="price__v">29 900 ₴</p>

@@ -16,6 +16,8 @@
 (function () {
   'use strict';
 
+  document.documentElement.classList.replace('no-js', 'js');
+
   /* --- дані шарів -------------------------------------------------------
      seat — де шар сидить у зібраному пристрої (світові одиниці, 1 ≈ 37 мм)
      ms/md — коли починається і скільки триває його рух
@@ -24,11 +26,11 @@
      і поки він на місці, вниз їм нема куди. Саме через зворотний порядок
      деталі раніше проходили крізь дно. */
   var LAYERS = [
-    { no: '01', name: 'екран',      seat:  0.222, half: 0.035, travel:  3.30, ease: 3, ms: 0.06, md: 0.18, cs: 0.06, dx:  0.10, dz: -0.04, rz:  0.020, rx: 0 },
-    { no: '02', name: 'клавіатура', seat:  0.225, half: 0.040, travel:  2.05, ease: 4, ms: 0.17, md: 0.18, cs: 0.17, dx: -0.08, dz:  0.05, rz: -0.015, rx: 0 },
-    { no: '03', name: 'плата',      seat:  0.150, half: 0.045, travel:  0.90, ease: 3, ms: 0.28, md: 0.18, cs: 0.28, dx:  0.05, dz:  0.06, rz: 0,      rx:  0.012 },
-    { no: '04', name: 'акумулятор', seat:  0.030, half: 0.085, travel: -0.55, ease: 2, ms: 0.46, md: 0.22, cs: 0.46, dx:  0.07, dz: -0.03, rz: 0,      rx: -0.010 },
-    { no: '05', name: 'радіатор',   seat: -0.130, half: 0.075, travel: -1.85, ease: 3, ms: 0.40, md: 0.26, cs: 0.54, dx: -0.05, dz:  0.04, rz:  0.014, rx: 0 },
+    { no: '01', name: 'екран',      seat:  0.192, half: 0.035, travel:  3.30, ease: 3, ms: 0.06, md: 0.18, cs: 0.06, dx:  0.10, dz: -0.04, rz:  0.020, rx: 0 },
+    { no: '02', name: 'клавіатура', seat:  0.191, half: 0.040, travel:  2.05, ease: 4, ms: 0.17, md: 0.18, cs: 0.17, dx: -0.08, dz:  0.05, rz: -0.015, rx: 0 },
+    { no: '03', name: 'плата',      seat:  0.118, half: 0.045, travel:  0.90, ease: 3, ms: 0.28, md: 0.18, cs: 0.28, dx:  0.05, dz:  0.06, rz: 0,      rx:  0.012 },
+    { no: '04', name: 'акумулятор', seat:  0.020, half: 0.085, travel: -0.55, ease: 2, ms: 0.46, md: 0.22, cs: 0.46, dx:  0.07, dz: -0.03, rz: 0,      rx: -0.010 },
+    { no: '05', name: 'радіатор',   seat: -0.150, half: 0.075, travel: -1.85, ease: 3, ms: 0.40, md: 0.26, cs: 0.54, dx: -0.05, dz:  0.04, rz:  0.014, rx: 0 },
     { no: '06', name: 'корпус',     seat: -0.030, half: 0.245, travel: -3.10, ease: 2, ms: 0.33, md: 0.30, cs: 0.64, dx:  0,    dz:  0,    rz: 0,      rx:  0.008 }
   ];
 
@@ -65,7 +67,7 @@
   var themeMQ  = window.matchMedia('(prefers-color-scheme: dark)');
   var reduced = motionMQ.matches;
   var smoothed = 0, primed = false;
-  var lastIndex = -1, lastFrame = 0, rafId = 0, running = false, dirty = true;
+  var lastIndex = -1, lastFrame = 0, rafId = 0, running = true, dirty = true;
   var us = [0, 0, 0, 0, 0, 0];
   var ys = [0, 0, 0, 0, 0, 0];
   var three = null;
@@ -101,14 +103,15 @@
     labelTheme();
     if (three) {
       var dark = isDark();
-      three.renderer.toneMappingExposure = dark ? 0.92 : 1.12;
-      three.scene.environmentIntensity = dark ? 0.7 : 1.0;
-      three.key.intensity = dark ? 1.1 : 1.8;
-      three.rim.intensity = dark ? 0.5 : 0.7;
-      three.hemi.intensity = dark ? 0.35 : 0.6;
+      three.renderer.toneMappingExposure = dark ? 1.0 : 1.2;
+      three.scene.environmentIntensity = dark ? 0.9 : 1.25;
+      three.key.intensity = dark ? 1.7 : 2.4;
+      three.fill.intensity = dark ? 0.45 : 0.6;
+      three.rim.intensity = dark ? 0.7 : 0.95;
+      three.hemi.intensity = dark ? 0.3 : 0.45;
     }
-    if (kb) kb.renderer.toneMappingExposure = isDark() ? 0.95 : 1.15;
-    if (pt) pt.renderer.toneMappingExposure = isDark() ? 0.95 : 1.15;
+    if (kb) kb.renderer.toneMappingExposure = isDark() ? 1.15 : 1.4;
+    if (pt) pt.renderer.toneMappingExposure = isDark() ? 1.1 : 1.32;
     dirty = true;
     wake();
   }
@@ -314,7 +317,7 @@
   }
 
   function wake() {
-    if (rafId) return;
+    if (rafId || !running || document.hidden) return;
     lastFrame = performance.now();
     primed = false;
     rafId = requestAnimationFrame(frame);
@@ -551,10 +554,10 @@
     var c = cv(512, 256), x = c.getContext('2d');
 
     var g = x.createLinearGradient(0, 0, 0, 256);
-    g.addColorStop(0, '#8e939c');   // стеля
-    g.addColorStop(0.44, '#4a4e56');
-    g.addColorStop(0.54, '#26282d');
-    g.addColorStop(1, '#0e0f12');   // підлога
+    g.addColorStop(0, '#b9bec7');   // стеля
+    g.addColorStop(0.40, '#5c616a');
+    g.addColorStop(0.52, '#2b2e34');
+    g.addColorStop(1, '#101116');   // підлога
     x.fillStyle = g; x.fillRect(0, 0, 512, 256);
 
     function strip(cx, cy, w, h, col) {
@@ -566,10 +569,11 @@
       x.fillRect(cx - w / 2, cy - h / 2, w, h);
     }
 
-    strip(120, 44, 250, 34, 'rgba(255,255,255,1)');      // головний софтбокс
-    strip(310, 26, 190, 20, 'rgba(236,242,255,0.95)');   // холодний згори
-    strip(415, 98, 200, 26, 'rgba(255,196,138,0.9)');    // теплий збоку
-    strip(30,  126, 150, 14, 'rgba(196,214,240,0.6)');   // слабкий контровий
+    strip(120, 42, 260, 40, 'rgba(255,255,255,1)');      // головний софтбокс
+    strip(310, 24, 200, 24, 'rgba(238,244,255,1)');      // холодний згори
+    strip(415, 92, 210, 30, 'rgba(255,198,142,0.95)');   // теплий збоку
+    strip(35,  120, 170, 18, 'rgba(200,218,244,0.75)');  // контровий
+    strip(230, 150, 150, 12, 'rgba(255,255,255,0.35)');  // нижній підбій
 
     var t = new THREE.CanvasTexture(c);
     t.mapping = THREE.EquirectangularReflectionMapping;
@@ -581,11 +585,23 @@
      стінки: різати наскрізь простіше, але тоді в корпусі зяє щілина вчетверо
      більша за сам порт. Стінка збирається із сегментів між отворами плюс
      перемички над і під кожним отвором. */
-  var WALL_H = 0.42, WALL_HALF = 0.21, WALL_X = 2.00, WALL_Z = 1.07, WALL_T = 0.06;
+  /* Стінка товста (0,14) навмисне: у тонкій стінці отвір читається як проріз
+     у бляшанці, а в товстій — як заглиблений роз'єм, бо видно саму товщу
+     фрезерованого борту. Верх стінки збігається з низом лицевої панелі, тож
+     по периметру не лишається щілини. */
+  var WALL_T = 0.14, WALL_Z = 1.03, WALL_X = 2.00;
+  var WALL_TOP = 0.237, WALL_BOT = -0.220;
+  var WALL_H = WALL_TOP - WALL_BOT, WALL_MID = (WALL_TOP + WALL_BOT) / 2;
+  var PANEL_X = 1.855, PANEL_Z = 0.950, PANEL_Y = 0.192, PANEL_C = 0.4775;
+  var SCREWS_XZ = [[-1.93, 0.62], [-1.93, 0], [-1.93, -0.62],
+                   [1.93, 0.62], [1.93, 0], [1.93, -0.62]];
+  /* Розміри отворів — справжні, а не «на око»: 1 одиниця ≈ 37 мм.
+     USB-C 8,9×2,6 мм, гніздо microSD 11×1,5 мм, роз'єм 3,5 мм має ⌀6 мм.
+     Перша версія була вчетверо завелика й читалася як вентиляційні прорізи. */
   var PORTS = [
-    { x: -0.95, w: 0.33,  h: 0.125 },   // USB-C
-    { x:  0.00, w: 0.215, h: 0.075 },   // microSD
-    { x:  0.95, w: 0.150, h: 0.150 }    // 3,5 мм
+    { x: -0.95, w: 0.245, h: 0.072 },   // USB-C
+    { x:  0.00, w: 0.300, h: 0.048 },   // microSD
+    { x:  0.95, w: 0.155, h: 0.155 }    // 3,5 мм
   ];
 
   function buildFront(add, matWall) {
@@ -593,17 +609,30 @@
     for (var i = 0; i < PORTS.length; i++) {
       var p = PORTS[i], hw = p.w / 2, hh = p.h / 2;
       var segW = (p.x - hw) - edge;
-      if (segW > 0.001) add(segW, WALL_H, WALL_T, matWall, edge + segW / 2, 0, WALL_Z, 0.012);
+      if (segW > 0.001) add(segW, WALL_H, WALL_T, matWall, edge + segW / 2, WALL_MID, WALL_Z, 0.012);
       // Перемички майже без фаски: інакше по всій висоті стінки проступають
       // шви на стиках із сусідніми сегментами.
-      var fill = WALL_HALF - hh;
-      add(p.w, fill, WALL_T, matWall, p.x,  (WALL_HALF + hh) / 2, WALL_Z, 0.004);
-      add(p.w, fill, WALL_T, matWall, p.x, -(WALL_HALF + hh) / 2, WALL_Z, 0.004);
+      var top = (WALL_TOP + hh) / 2, bot = (WALL_BOT - hh) / 2;
+      add(p.w, WALL_TOP - hh, WALL_T, matWall, p.x, top, WALL_Z, 0.004);
+      add(p.w, -WALL_BOT - hh, WALL_T, matWall, p.x, bot, WALL_Z, 0.004);
       edge = p.x + hw;
     }
     if (WALL_X - edge > 0.001) {
-      add(WALL_X - edge, WALL_H, WALL_T, matWall, (edge + WALL_X) / 2, 0, WALL_Z, 0.012);
+      add(WALL_X - edge, WALL_H, WALL_T, matWall, (edge + WALL_X) / 2, WALL_MID, WALL_Z, 0.012);
     }
+  }
+
+  // Роз'єми стоять ЗА стінкою і ширші за отвір: тоді крізь отвір видно суцільну
+  // темну обичайку роз'єму, а не щілину навколо нього.
+  function buildPortBodies(THREE, add, matDark, matCu, addMesh) {
+    add(0.32, 0.13, 0.10, matDark, -0.95, 0, 0.93, 0.008);
+    add(0.17, 0.016, 0.06, matCu,  -0.95, 0, 0.90, 0.004);
+    add(0.38, 0.11, 0.10, matDark,  0.00, 0, 0.93, 0.008);
+    var jg = new THREE.CylinderGeometry(0.090, 0.090, 0.12, 16);
+    jg.rotateX(Math.PI / 2);
+    var jm = new THREE.Mesh(jg, matDark);
+    jm.position.set(0.95, 0, 0.96);
+    addMesh(jm);
   }
 
   /* Коробка з фаскою по всіх ребрах. Саме фаска ловить світло вузькою
@@ -651,10 +680,14 @@
     envTex.dispose();
     pmrem.dispose();
 
-    var hemi = new THREE.HemisphereLight(0xE7E4DC, 0x241C33, 0.6);
-    var key  = new THREE.DirectionalLight(0xFFF6EC, 1.8); key.position.set(3.4, 6.2, 4.2);
-    var rim  = new THREE.DirectionalLight(0xC9773F, 0.7);  rim.position.set(-4.2, -1.2, -3.6);
-    scene.add(hemi, key, rim);
+    /* Ключове світло опущене й винесене вперед: плити лежать горизонтально,
+       і з високої точки вони заливаються рівно, без жодного ребра. Косий
+       промінь висвітлює фаски — саме за ними око читає фрезерований метал. */
+    var hemi = new THREE.HemisphereLight(0xE7E4DC, 0x241C33, 0.45);
+    var key  = new THREE.DirectionalLight(0xFFF6EC, 2.4); key.position.set(3.0, 4.0, 5.4);
+    var fill = new THREE.DirectionalLight(0xBFD4E8, 0.6); fill.position.set(-4.6, 2.2, 2.4);
+    var rim  = new THREE.DirectionalLight(0xC9773F, 0.95); rim.position.set(-2.6, -1.6, -4.6);
+    scene.add(hemi, key, fill, rim);
 
     var brush = brushTexture(THREE);
 
@@ -671,16 +704,19 @@
        спільні — дублюється лише опис поверхні, не пікселі. */
     function makeMats() {
       return {
-        alu:   std({ color: 0xAEB3AE, metalness: 0.72, roughness: 0.31, roughnessMap: brush, envMapIntensity: 1.35 }),
-        aluIn: std({ color: 0x7D827E, metalness: 0.62, roughness: 0.50, roughnessMap: brush, envMapIntensity: 1.10 }),
-        cu:    std({ color: 0xC0703A, metalness: 0.82, roughness: 0.26, envMapIntensity: 1.45 }),
-        cuDim: std({ color: 0xA55C2C, metalness: 0.82, roughness: 0.42, envMapIntensity: 1.20 }),
-        dark:  std({ color: 0x1E2024, metalness: 0.18, roughness: 0.62 }),
-        keyc:  std({ color: 0x24272B, metalness: 0.10, roughness: 0.55 }),
-        board: std({ color: 0xFFFFFF, metalness: 0.05, roughness: 0.55, map: texBoard }),
-        label: std({ color: 0xFFFFFF, metalness: 0.00, roughness: 0.90, map: texLabel }),
-        glass: std({ color: 0x0E1518, metalness: 0, roughness: 0.72,
-                     emissive: 0xFFFFFF, emissiveIntensity: 0.85, emissiveMap: texScreen })
+        alu:   std({ color: 0xB6BBB6, metalness: 0.74, roughness: 0.27, roughnessMap: brush, envMapIntensity: 1.65 }),
+        aluIn: std({ color: 0x8C918D, metalness: 0.62, roughness: 0.44, roughnessMap: brush, envMapIntensity: 1.35 }),
+        cu:    std({ color: 0xC77742, metalness: 0.84, roughness: 0.22, envMapIntensity: 1.75 }),
+        cuDim: std({ color: 0xAA6231, metalness: 0.84, roughness: 0.38, envMapIntensity: 1.40 }),
+        dark:  std({ color: 0x2A2D33, metalness: 0.22, roughness: 0.52, envMapIntensity: 1.1 }),
+        keyc:  std({ color: 0x3A3E45, metalness: 0.16, roughness: 0.42, envMapIntensity: 1.2 }),
+        board: std({ color: 0xFFFFFF, metalness: 0.06, roughness: 0.48, map: texBoard, envMapIntensity: 1.1 }),
+        label: std({ color: 0xFFFFFF, metalness: 0.00, roughness: 0.85, map: texLabel }),
+        /* Блік на матриці більше не намальований у текстурі: скло має низьку
+           шорсткість і високу силу відображень, тому ловить справжній софтбокс
+           з оточення — і блік їде по екрану, коли модель повертається. */
+        glass: std({ color: 0x0A1014, metalness: 0.0, roughness: 0.26, envMapIntensity: 2.6,
+                     emissive: 0xFFFFFF, emissiveIntensity: 0.40, emissiveMap: texScreen })
       };
     }
 
@@ -717,18 +753,18 @@
 
     /* 01 екран */
     groups[0].add(
-      part(3.86, 0.030, 1.00, M0.alu, 0, 0, -0.52),
-      part(3.34, 0.014, 0.76, M0.dark, 0, 0.020, -0.52, 0.004),
-      plainPart(3.20, 0.006, 0.64, M0.glass, 0, 0.030, -0.52)
+      part(PANEL_X * 2, 0.030, PANEL_Z, M0.alu, 0, 0, -PANEL_C),
+      part(3.30, 0.014, 0.70, M0.dark, 0, 0.020, -0.4775, 0.004),
+      plainPart(3.16, 0.006, 0.58, M0.glass, 0, 0.030, -0.4775)
     );
 
     /* 02 клавіатура */
-    groups[1].add(part(3.86, 0.028, 1.02, M1.aluIn, 0, 0, 0.52));
+    groups[1].add(part(PANEL_X * 2, 0.028, PANEL_Z, M1.aluIn, 0, 0, PANEL_C));
     var keys = new THREE.InstancedMesh(chamferGeo(0.235, 0.060, 0.150, 0.016), M1.keyc, 62);
     var dummy = new THREE.Object3D(), n = 0;
     for (var r = 0; r < 5 && n < 62; r++) {
       for (var c2 = 0; c2 < 13 && n < 62; c2++) {
-        dummy.position.set(-1.72 + c2 * 0.2867, 0.044, 0.17 + r * 0.190);
+        dummy.position.set(-1.66 + c2 * 0.2767, 0.044, 0.15 + r * 0.175);
         dummy.updateMatrix();
         keys.setMatrixAt(n++, dummy.matrix);
       }
@@ -739,14 +775,14 @@
     /* 03 плата */
     groups[2].add(
       part(3.78, 0.028, 2.00, M2.board, 0, 0, 0, 0.006),
-      part(0.62, 0.050, 0.62, M2.dark, -0.90, 0.039, -0.20, 0.008),
-      part(0.40, 0.035, 0.75, M2.dark,  0.60, 0.032,  0.10, 0.008),
-      part(0.30, 0.030, 0.30, M2.dark,  1.30, 0.029, -0.50, 0.006),
-      part(0.35, 0.060, 0.16, M2.cuDim, 1.55, 0.044,  0.85, 0.008)
+      part(0.62, 0.036, 0.62, M2.dark, -0.90, 0.032, -0.20, 0.008),
+      part(0.40, 0.030, 0.75, M2.dark,  0.60, 0.029,  0.10, 0.008),
+      part(0.30, 0.026, 0.30, M2.dark,  1.30, 0.027, -0.50, 0.006),
+      part(0.35, 0.040, 0.16, M2.cuDim, 1.50, 0.034,  0.82, 0.008)
     );
-    var pins = new THREE.InstancedMesh(new THREE.BoxGeometry(0.030, 0.075, 0.030), M2.cu, 20);
+    var pins = new THREE.InstancedMesh(new THREE.BoxGeometry(0.030, 0.042, 0.030), M2.cu, 20);
     for (var p2 = 0; p2 < 20; p2++) {
-      dummy.position.set(-1.00 + p2 * 0.105, 0.050, 0.92);
+      dummy.position.set(-1.00 + p2 * 0.105, 0.036, 0.90);
       dummy.updateMatrix();
       pins.setMatrixAt(p2, dummy.matrix);
     }
@@ -775,42 +811,35 @@
     /* 06 корпус: дно, стінки, приливи під гвинти, ребра жорсткості.
        Передня стінка складена з чотирьох сегментів — прорізи між ними і є
        роз'єми, які видно, коли корпус від'їжджає вниз. */
+    var addCase = function (w, h, d, m, x, y, z, c) { groups[5].add(part(w, h, d, m, x, y, z, c)); };
     groups[5].add(
       part(4.00, 0.050, 2.20, M5.alu, 0, -0.205, 0, 0.014),
-      part(0.06, 0.42, 2.20, M5.alu, -1.97, 0, 0, 0.012),
-      part(0.06, 0.42, 2.20, M5.alu,  1.97, 0, 0, 0.012),
-      part(4.00, 0.42, 0.06, M5.alu, 0, 0, -1.07, 0.012)
+      part(WALL_T, WALL_H, 2.20, M5.alu, -1.93, WALL_MID, 0, 0.012),
+      part(WALL_T, WALL_H, 2.20, M5.alu,  1.93, WALL_MID, 0, 0.012),
+      part(4.00, WALL_H, WALL_T, M5.alu, 0, WALL_MID, -WALL_Z, 0.012)
     );
-    buildFront(function (w, h, d, m, x, y, z, c) { groups[5].add(part(w, h, d, m, x, y, z, c)); }, M5.alu);
-    // самі роз'єми, кожен у своєму отворі
-    groups[5].add(
-      part(0.300, 0.098, 0.085, M5.dark, -0.95, 0, 1.062, 0.010),
-      part(0.210, 0.020, 0.050, M5.cuDim, -0.95, 0, 1.052, 0.005),
-      part(0.190, 0.055, 0.075, M5.dark,  0.00, 0, 1.062, 0.008)
-    );
-    var jackGeo = new THREE.CylinderGeometry(0.062, 0.062, 0.090, 14);
-    jackGeo.rotateX(Math.PI / 2);
-    var jack = new THREE.Mesh(jackGeo, M5.dark);
-    jack.position.set(0.95, 0, 1.062);
-    groups[5].add(jack);
+    buildFront(addCase, M5.alu);
+    buildPortBodies(THREE, addCase, M5.dark, M5.cuDim, function (m) { groups[5].add(m); });
     // ребра жорсткості на дні
     for (var rb = -1; rb <= 1; rb++) {
       groups[5].add(part(0.05, 0.075, 1.86, M5.aluIn, rb * 1.02, -0.145, 0, 0.010));
     }
-    // приливи під гвинти
-    var bossGeo = new THREE.CylinderGeometry(0.082, 0.095, 0.16, 10);
-    var bosses = new THREE.InstancedMesh(bossGeo, M5.aluIn, 6);
-    var screwPos = [[-1.85, 0.92], [-1.85, 0], [-1.85, -0.92], [1.85, 0.92], [1.85, 0], [1.85, -0.92]];
+    /* Отвори під гвинти. Були гвинти, що з'являлися нізвідки: вони висіли над
+       порожнім бортом. Тепер під кожним є заглиблення, і коли гвинт виходить,
+       на його місці лишається темний отвір. */
+    var boreGeo = new THREE.CylinderGeometry(0.062, 0.062, 0.10, 12);
+    var bores = new THREE.InstancedMesh(boreGeo, M5.dark, 6);
+    var screwPos = SCREWS_XZ;
     for (var bi = 0; bi < 6; bi++) {
-      dummy.position.set(screwPos[bi][0], -0.10, screwPos[bi][1]);
+      dummy.position.set(screwPos[bi][0], WALL_TOP - 0.05, screwPos[bi][1]);
       dummy.updateMatrix();
-      bosses.setMatrixAt(bi, dummy.matrix);
+      bores.setMatrixAt(bi, dummy.matrix);
     }
-    bosses.instanceMatrix.needsUpdate = true;
-    groups[5].add(bosses);
+    bores.instanceMatrix.needsUpdate = true;
+    groups[5].add(bores);
 
     // шість гвинтів — вони ж перший такт анімації
-    var scGeo = new THREE.CylinderGeometry(0.058, 0.052, 0.026, 12);
+    var scGeo = new THREE.CylinderGeometry(0.056, 0.050, 0.030, 12);
     var caseScrews = new THREE.InstancedMesh(scGeo, M5.cuDim, 6);
     groups[5].add(caseScrews);
 
@@ -818,8 +847,8 @@
        екран і клавіатура лежать у різних половинах, тож обидва падають на плату. */
     var shTex = shadowTexture(THREE);
     var SHADOWS = [
-      { from: 0, to: 2, w: 3.95, d: 1.10, x: 0, z: -0.52, y:  0.017 },
-      { from: 1, to: 2, w: 3.95, d: 1.12, x: 0, z:  0.52, y:  0.017 },
+      { from: 0, to: 2, w: 3.78, d: 1.00, x: 0, z: -0.4775, y:  0.017 },
+      { from: 1, to: 2, w: 3.78, d: 1.00, x: 0, z:  0.4775, y:  0.017 },
       { from: 2, to: 3, w: 3.85, d: 2.05, x: 0, z:  0,    y:  0.081 },
       { from: 3, to: 4, w: 3.20, d: 1.80, x: 0, z:  0,    y:  0.092 },
       { from: 4, to: 5, w: 3.80, d: 2.02, x: 0, z:  0,    y: -0.176 }
@@ -888,7 +917,7 @@
     scene.add(flex);
 
     // роз'єми, у які він встромлений
-    groups[2].add(part(0.40, 0.045, 0.10, M2.dark, 0.85, 0.036, -0.86, 0.008));
+    groups[2].add(part(0.40, 0.036, 0.10, M2.dark, 0.85, 0.032, -0.86, 0.008));
     groups[0].add(part(0.40, 0.030, 0.10, M0.dark, 0.85, -0.020, -0.80, 0.006));
 
     var ap = [
@@ -906,7 +935,7 @@
       scene: scene, camera: camera, groups: groups, anchors: anchors,
       mats: allMats, layerMats: layerMats, shadows: shadows, glow: glow,
       flex: flex, flexGeo: flexGeo, flexPos: flexPos, flexSeg: FLEX_SEG,
-      hemi: hemi, key: key, rim: rim,
+      hemi: hemi, key: key, rim: rim, fill: fill,
       caseScrews: caseScrews, screwPos: screwPos, dummy: dummy,
       vec: new THREE.Vector3()
     };
@@ -987,9 +1016,7 @@
       }
     }
 
-    if (three.glow.visible) three.glow.material.opacity = 0.22 + 0.5 * dims[0];
-
-    updateFlex();
+    if (three.glow.visible) three.glow.material.opacity = 0.10 + 0.26 * dims[0];
 
     // М'яка тінь верхньої деталі на тій, що під нею: щільна, поки вони поруч,
     // і розмита та бліда, коли роз'їхалися.
@@ -1012,7 +1039,7 @@
     for (i = 0; i < 6; i++) {
       var lag = clamp((sf - i * 0.06) / 0.7, 0, 1);
       var e = easeOut(lag, 2);
-      d.position.set(sp[i][0], 0.20 + e * 0.40, sp[i][1]);
+      d.position.set(sp[i][0], WALL_TOP - 0.012 + e * 0.42, sp[i][1]);
       d.rotation.set(0, e * 9.2, 0);
       var s = 1 - smoothstep(0.72, 1, e);
       d.scale.set(s, s, s);
@@ -1047,6 +1074,11 @@
     three.groups[idx].position.x += fx / fl * kf;
     three.groups[idx].position.y += fy / fl * kf;
     three.groups[idx].position.z += fz / fl * kf;
+
+    /* Шлейф будується ТУТ, а не раніше: активний шар щойно зсунувся до камери,
+       і якби стрічку порахували до цього, її кінець лишився б у порожнечі —
+       рівно в тому кадрі, з якого сторінка починається. */
+    updateFlex();
 
     three.renderer.render(three.scene, cam);
 
@@ -1087,23 +1119,33 @@
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
     } catch (e) { noThree(); return; }
 
+    // якщо сторож уже встиг увімкнути плоску схему, повертаємо 3D
+    root.classList.remove('no3d');
     var built = build(THREE, renderer);
     three = {
       renderer: renderer, scene: built.scene, camera: built.camera,
       groups: built.groups, anchors: built.anchors, mats: built.mats,
       layerMats: built.layerMats, shadows: built.shadows, glow: built.glow,
       flex: built.flex, flexGeo: built.flexGeo, flexPos: built.flexPos, flexSeg: built.flexSeg,
-      hemi: built.hemi, key: built.key, rim: built.rim,
+      hemi: built.hemi, key: built.key, rim: built.rim, fill: built.fill,
       caseScrews: built.caseScrews, screwPos: built.screwPos, dummy: built.dummy,
       vec: built.vec
     };
 
+    var ctxLost = false;
     canvas.addEventListener('webglcontextlost', function (e) {
       e.preventDefault();
+      ctxLost = true;
       sleep();
-      setTimeout(function () { if (three && !three.renderer.getContext().isContextLost) return; noThree(); }, 3000);
+      // isContextLost — метод. Раніше тут стояла перевірка без виклику, тому
+      // вона ніколи не спрацьовувала, і будь-яка відновна втрата контексту
+      // назавжди опускала сторінку на плоску схему.
+      setTimeout(function () { if (!ctxLost) return; noThree(); }, 3000);
     });
-    canvas.addEventListener('webglcontextrestored', function () { if (running) wake(); });
+    canvas.addEventListener('webglcontextrestored', function () {
+      ctxLost = false;
+      if (running) wake();
+    });
 
     onTheme();
     applyFx();
@@ -1128,7 +1170,7 @@
     } catch (e) { return null; }
     renderer.setClearAlpha(0);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = isDark() ? 0.95 : 1.15;
+    renderer.toneMappingExposure = isDark() ? 1.15 : 1.4;
 
     var scene = new THREE.Scene();
     var camera = new THREE.PerspectiveCamera(34, 1.6, 0.05, 40);
@@ -1138,12 +1180,13 @@
     scene.environment = pmrem.fromEquirectangular(et).texture;
     et.dispose(); pmrem.dispose();
 
-    var key = new THREE.DirectionalLight(0xFFF6EC, 1.6); key.position.set(2.2, 3.4, 2.6);
-    var fill = new THREE.DirectionalLight(0xC9773F, 0.5); fill.position.set(-2.4, 0.6, -1.8);
-    scene.add(key, fill, new THREE.HemisphereLight(0xE7E4DC, 0x241C33, 0.45));
+    var key = new THREE.DirectionalLight(0xFFF6EC, 2.6); key.position.set(1.6, 2.4, 3.2);
+    var fill = new THREE.DirectionalLight(0xBFD4E8, 0.9); fill.position.set(-2.6, 1.4, 1.2);
+    var rim = new THREE.DirectionalLight(0xC9773F, 0.8); rim.position.set(-1.2, 0.5, -2.6);
+    scene.add(key, fill, rim, new THREE.HemisphereLight(0xE7E4DC, 0x2A2D33, 0.55));
 
-    var matPlate = new THREE.MeshStandardMaterial({ color: 0x7D827E, metalness: 0.62, roughness: 0.5 });
-    var matKey   = new THREE.MeshStandardMaterial({ color: 0x24272B, metalness: 0.1, roughness: 0.52 });
+    var matPlate = new THREE.MeshStandardMaterial({ color: 0x8C918D, metalness: 0.62, roughness: 0.42, envMapIntensity: 1.4 });
+    var matKey   = new THREE.MeshStandardMaterial({ color: 0x3C4048, metalness: 0.16, roughness: 0.40, envMapIntensity: 1.3 });
     scene.add(new THREE.Mesh(chamfer(THREE, 3.86, 0.028, 1.02, 0.012), matPlate));
 
     // підсвітка світить із-під клавіш і видно її саме в зазорах між ними
@@ -1259,7 +1302,7 @@
     } catch (e) { return null; }
     renderer.setClearAlpha(0);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = isDark() ? 0.95 : 1.15;
+    renderer.toneMappingExposure = isDark() ? 1.1 : 1.32;
 
     var scene = new THREE.Scene();
     var camera = new THREE.PerspectiveCamera(30, 2.3, 0.05, 60);
@@ -1269,14 +1312,15 @@
     scene.environment = pmrem.fromEquirectangular(et).texture;
     et.dispose(); pmrem.dispose();
 
-    var kl = new THREE.DirectionalLight(0xFFF6EC, 1.5); kl.position.set(2.0, 3.0, 4.0);
-    var fl = new THREE.DirectionalLight(0xC9773F, 0.55); fl.position.set(-3.0, 0.4, -2.0);
-    scene.add(kl, fl, new THREE.HemisphereLight(0xE7E4DC, 0x241C33, 0.5));
+    var kl = new THREE.DirectionalLight(0xFFF6EC, 2.2); kl.position.set(1.6, 2.4, 4.4);
+    var fl = new THREE.DirectionalLight(0xBFD4E8, 0.8); fl.position.set(-3.2, 1.2, 2.0);
+    var rl = new THREE.DirectionalLight(0xC9773F, 0.7); rl.position.set(-2.0, -0.6, -3.0);
+    scene.add(kl, fl, rl, new THREE.HemisphereLight(0xE7E4DC, 0x2A2D33, 0.5));
 
-    var alu  = new THREE.MeshStandardMaterial({ color: 0xAEB3AE, metalness: 0.72, roughness: 0.31 });
-    var aluD = new THREE.MeshStandardMaterial({ color: 0x7D827E, metalness: 0.62, roughness: 0.5 });
-    var dark = new THREE.MeshStandardMaterial({ color: 0x16181B, metalness: 0.2, roughness: 0.6 });
-    var cu   = new THREE.MeshStandardMaterial({ color: 0xC0703A, metalness: 0.82, roughness: 0.3 });
+    var alu  = new THREE.MeshStandardMaterial({ color: 0xB6BBB6, metalness: 0.74, roughness: 0.27, envMapIntensity: 1.6 });
+    var aluD = new THREE.MeshStandardMaterial({ color: 0x8C918D, metalness: 0.62, roughness: 0.44, envMapIntensity: 1.3 });
+    var dark = new THREE.MeshStandardMaterial({ color: 0x14161A, metalness: 0.25, roughness: 0.5, envMapIntensity: 1.0 });
+    var cu   = new THREE.MeshStandardMaterial({ color: 0xC77742, metalness: 0.84, roughness: 0.26, envMapIntensity: 1.7 });
 
     var dev = new THREE.Group();
     scene.add(dev);
@@ -1287,22 +1331,29 @@
       return me;
     }
     // зібраний пристрій: дно, бокові стінки, задня, лицева панель
-    add(4.00, 0.050, 2.20, alu, 0, -0.205, 0, 0.014);
-    add(0.06, 0.42, 2.20, alu, -1.97, 0, 0);
-    add(0.06, 0.42, 2.20, alu,  1.97, 0, 0);
-    add(4.00, 0.42, 0.06, alu, 0, 0, -1.07);
-    add(3.86, 0.032, 2.04, aluD, 0, 0.205, 0, 0.010);
-    add(3.30, 0.010, 0.70, dark, 0, 0.224, -0.52, 0.004);
-    // передній торець: отвори рівно під роз'єми
-    buildFront(add, alu);
-    add(0.300, 0.098, 0.085, dark, -0.95, 0, 1.062, 0.010);
-    add(0.210, 0.020, 0.050, cu,   -0.95, 0, 1.052, 0.005);
-    add(0.190, 0.055, 0.075, dark,  0.00, 0, 1.062, 0.008);
-    var jg = new THREE.CylinderGeometry(0.062, 0.062, 0.090, 14);
-    jg.rotateX(Math.PI / 2);
-    var jm = new THREE.Mesh(jg, dark);
-    jm.position.set(0.95, 0, 1.062);
-    dev.add(jm);
+    var CY = -0.03;   // та сама посадка, що й у шару «корпус» при розбиранні
+    add(4.00, 0.050, 2.20, alu, 0, -0.205 + CY, 0, 0.014);
+    add(WALL_T, WALL_H, 2.20, alu, -1.93, WALL_MID + CY, 0);
+    add(WALL_T, WALL_H, 2.20, alu,  1.93, WALL_MID + CY, 0);
+    add(4.00, WALL_H, WALL_T, alu, 0, WALL_MID + CY, -WALL_Z);
+    // лицева панель рівно закриває отвір
+    add(PANEL_X * 2, 0.030, PANEL_Z, aluD, 0, PANEL_Y, -PANEL_C, 0.010);
+    add(PANEL_X * 2, 0.028, PANEL_Z, aluD, 0, PANEL_Y, PANEL_C, 0.010);
+    add(3.16, 0.010, 0.58, dark, 0, PANEL_Y + 0.020, -0.4775, 0.004);
+    buildFront(function (w, h, d, m, x, y, z, c) { add(w, h, d, m, x, y + CY, z, c); }, alu);
+    buildPortBodies(THREE, function (w, h, d, m, x, y, z, c) { add(w, h, d, m, x, y + CY, z, c); },
+                    dark, cu, function (m) { m.position.y += CY; dev.add(m); });
+    // гвинти в борті, з отворами під ними
+    var scg = new THREE.CylinderGeometry(0.056, 0.050, 0.030, 12);
+    var bg = new THREE.CylinderGeometry(0.062, 0.062, 0.10, 12);
+    for (var si = 0; si < SCREWS_XZ.length; si++) {
+      var bm = new THREE.Mesh(bg, dark);
+      bm.position.set(SCREWS_XZ[si][0], WALL_TOP - 0.05 + CY, SCREWS_XZ[si][1]);
+      dev.add(bm);
+      var sm = new THREE.Mesh(scg, cu);
+      sm.position.set(SCREWS_XZ[si][0], WALL_TOP - 0.012 + CY, SCREWS_XZ[si][1]);
+      dev.add(sm);
+    }
 
     var anchors = [];
     var apos = [[-0.95, 0.02, 1.13], [0, 0.02, 1.13], [0.95, 0.02, 1.13]];
@@ -1467,12 +1518,12 @@
       if (!m) continue;
       el.setAttribute('data-n', m[1].replace(/\D/g, ''));
       el.setAttribute('data-tail', m[2]);
-      if (io && el.getBoundingClientRect().top > (window.innerHeight || 800)) {
-        el.textContent = '0' + m[2];
-        io.observe(el);
-      } else {
-        run(el);
-      }
+      // Раніше тут у DOM записувався '0' до появи елемента в кадрі, тобто
+      // сторінка деякий час містила неправдиве значення — і назавжди, якщо
+      // людина туди так і не долистала. Тепер текст лишається справжнім, а
+      // відлік починається з нуля вже в момент запуску.
+      if (io && el.getBoundingClientRect().top > (window.innerHeight || 800)) io.observe(el);
+      else run(el);
     }
   }
 
@@ -1505,9 +1556,16 @@
   measure();
   wake();
 
-  function bootScenes() { initThree(); if (kbSeen) kbStart(); if (ptSeen) ptStart(); }
+  var lateGuard = setTimeout(function () {
+    if (!three && !root.classList.contains('no3d')) noThree();
+  }, 4000);
+
+  function bootScenes() {
+    clearTimeout(lateGuard);
+    initThree();
+    if (kbSeen) kbStart();
+    if (ptSeen) ptStart();
+  }
   if (window.THREE) bootScenes();
   else window.addEventListener('three:ready', bootScenes, { once: true });
-
-  setTimeout(function () { if (!three && !root.classList.contains('no3d')) noThree(); }, 4000);
 })();
