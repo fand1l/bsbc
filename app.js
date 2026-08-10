@@ -55,6 +55,8 @@
   var flats  = Array.prototype.slice.call(flat.querySelectorAll('.flat__p'));
   var screwsBox = document.getElementById('screws');
   var themeBtn  = document.getElementById('theme');
+  var fxBtn     = document.getElementById('fx');
+  var fxVal     = document.getElementById('fxval');
   var ann    = document.getElementById('ann');
   var root   = document.documentElement;
 
@@ -71,6 +73,8 @@
   var leadOn = false, spread = 1;
   var annTimer = 0, lastDrawn = -1, staticMode = false;
   var stickyPx = 0, denom = 0;
+  var dims = [1, 0.4, 0.4, 0.4, 0.4, 0.4], dimsPrev = [-1, -1, -1, -1, -1, -1];
+  var fxOn = true, fxManual = false;
   var perfN = 0, perfSum = 0, perfSteps = 0, dprCapNow = 2;
 
   for (var gi = 0; gi < 5; gi++) {
@@ -115,6 +119,41 @@
   });
 
   themeMQ.addEventListener('change', function () { if (!root.dataset.theme) onTheme(); });
+
+  /* --- 1a. Якість проти швидкості --------------------------------------
+     Тумблер керує трьома речами одразу: світінням екрана, віньєткою й
+     роздільною здатністю рендера. Ручний вибір вимикає автоматичне
+     зниження якості — якщо людина свідомо просить «якість», сторінка не
+     має мовчки відбирати її назад. */
+  try {
+    var savedFx = localStorage.getItem('k1-fx');
+    if (savedFx === 'on' || savedFx === 'off') { fxOn = savedFx === 'on'; fxManual = true; }
+  } catch (e) { /* приватний режим */ }
+
+  function applyFx() {
+    root.classList.toggle('fx-off', !fxOn);
+    fxBtn.setAttribute('aria-checked', fxOn ? 'true' : 'false');
+    fxVal.textContent = fxOn ? 'якість' : 'швидкість';
+    if (three) {
+      if (three.glow) three.glow.visible = fxOn;
+      for (var i = 0; i < three.shadows.length; i++) {
+        if (!fxOn) three.shadows[i].mesh.visible = false;
+      }
+      dprCapNow = fxOn ? (window.innerWidth < 768 ? 1.5 : 2) : 1;
+      three.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCapNow));
+      three.renderer.setSize(visW, visH, false);
+    }
+    dirty = true;
+    wake();
+  }
+
+  fxBtn.addEventListener('click', function () {
+    fxOn = !fxOn;
+    fxManual = true;
+    perfSteps = 2;               // людина вирішила сама — більше не втручаємось
+    try { localStorage.setItem('k1-fx', fxOn ? 'on' : 'off'); } catch (e) { /* приватний режим */ }
+    applyFx();
+  });
 
   /* --- 2. Гвинти-індикатори -------------------------------------------- */
   var SCREW_SVG =
@@ -162,7 +201,7 @@
     return idx;
   }
 
-  function apply(p) {
+  function apply(p, dt) {
     var i, L;
     var collapse = smoothstep(COLLAPSE, 1, p);          // складання назад
     collapse = collapse * collapse;                      // прискорення до кінця
@@ -183,14 +222,15 @@
       if (ys[i] < minC) ys[i] = minC;
     }
 
-    if (three) applyThree(p, collapse);
+    var idx = activeFrom(p);
+
+    if (three) applyThree(p, collapse, dt, idx);
     else for (i = 0; i < flats.length; i++) {
       flats[i].style.setProperty('--y', (us[i] * LAYERS[i].travel * -22).toFixed(1));
     }
 
     for (i = 0; i < screws.length; i++) screws[i].style.setProperty('--u', us[i].toFixed(3));
 
-    var idx = activeFrom(p);
     if (idx !== lastIndex) setActive(idx);
   }
 
@@ -232,7 +272,7 @@
     lastDrawn = smoothed;
     dirty = false;
 
-    apply(smoothed);
+    apply(smoothed, dt);
     if (three) watchPerf(raw);
   }
 
@@ -241,7 +281,7 @@
      вдвічі знижується роздільна здатність рендера. Вигляд лишається той
      самий — падає лише кількість пікселів, а не якість матеріалів. */
   function watchPerf(dt) {
-    if (perfSteps >= 2 || dt <= 0 || dt > 1) return;
+    if (fxManual || perfSteps >= 2 || dt <= 0 || dt > 1) return;
     perfSum += dt; perfN++;
     if (perfN < 10 || perfSum < 1.2) return;
     var avg = perfSum / perfN;
@@ -463,6 +503,28 @@
     return t;
   }
 
+  // М'яка пляма — тінь однієї деталі на тій, що під нею
+  function shadowTexture(THREE) {
+    var c = cv(128, 128), x = c.getContext('2d');
+    var g = x.createRadialGradient(64, 64, 4, 64, 64, 62);
+    g.addColorStop(0, 'rgba(0,0,0,0.85)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0.42)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  }
+
+  // М'яке світіння над матрицею — дешевша заміна повного bloom
+  function glowTexture(THREE) {
+    var c = cv(128, 128), x = c.getContext('2d');
+    var g = x.createRadialGradient(64, 64, 2, 64, 64, 62);
+    g.addColorStop(0, 'rgba(150,200,230,0.9)');
+    g.addColorStop(0.45, 'rgba(110,165,205,0.32)');
+    g.addColorStop(1, 'rgba(90,140,190,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  }
+
   /* Оточення для відображень. Тут важлива не яскравість, а КОНТРАСТ:
      плавний градієнт дає рівне відображення, і метал читається як пластик.
      Метал упізнається за тим, що по ньому їдуть світлі смуги на темному —
@@ -535,21 +597,42 @@
     var brush = brushTexture(THREE);
 
     function std(o) { return new THREE.MeshStandardMaterial(o); }
+
+    var texBoard = boardTexture(THREE), texLabel = labelTexture(THREE), texScreen = screenTexture(THREE);
+
     /* Металічність навмисне не 1,0: на схемі деталь має лишатися читабельною
        навіть там, де їй нема чого відбивати. Трохи дифузного кольору — і
-       алюміній не провалюється в чорноту, коли повертається до темної стіни. */
-    var matAlu   = std({ color: 0xAEB3AE, metalness: 0.72, roughness: 0.31, roughnessMap: brush, envMapIntensity: 1.35 });
-    var matAluIn = std({ color: 0x7D827E, metalness: 0.62, roughness: 0.50, roughnessMap: brush, envMapIntensity: 1.1 });
-    var matCu    = std({ color: 0xC0703A, metalness: 0.82, roughness: 0.26, envMapIntensity: 1.45 });
-    var matCuDim = std({ color: 0xA55C2C, metalness: 0.82, roughness: 0.42, envMapIntensity: 1.2 });
-    var matDark  = std({ color: 0x1E2024, metalness: 0.18, roughness: 0.62 });
-    var matKey   = std({ color: 0x24272B, metalness: 0.1,  roughness: 0.55 });
-    var matBoard = std({ color: 0xFFFFFF, metalness: 0.05, roughness: 0.55, map: boardTexture(THREE) });
-    var matLabel = std({ color: 0xFFFFFF, metalness: 0.0,  roughness: 0.9, map: labelTexture(THREE) });
-    var matGlass = std({
-      color: 0x0E1518, metalness: 0.0, roughness: 0.72,
-      emissive: 0xFFFFFF, emissiveIntensity: 0.85, emissiveMap: screenTexture(THREE)
-    });
+       алюміній не провалюється в чорноту, коли повертається до темної стіни.
+
+       Набір створюється окремо для кожного шару: спільні матеріали не дали б
+       притлумити неактивні деталі, не зачепивши активну. Текстури при цьому
+       спільні — дублюється лише опис поверхні, не пікселі. */
+    function makeMats() {
+      return {
+        alu:   std({ color: 0xAEB3AE, metalness: 0.72, roughness: 0.31, roughnessMap: brush, envMapIntensity: 1.35 }),
+        aluIn: std({ color: 0x7D827E, metalness: 0.62, roughness: 0.50, roughnessMap: brush, envMapIntensity: 1.10 }),
+        cu:    std({ color: 0xC0703A, metalness: 0.82, roughness: 0.26, envMapIntensity: 1.45 }),
+        cuDim: std({ color: 0xA55C2C, metalness: 0.82, roughness: 0.42, envMapIntensity: 1.20 }),
+        dark:  std({ color: 0x1E2024, metalness: 0.18, roughness: 0.62 }),
+        keyc:  std({ color: 0x24272B, metalness: 0.10, roughness: 0.55 }),
+        board: std({ color: 0xFFFFFF, metalness: 0.05, roughness: 0.55, map: texBoard }),
+        label: std({ color: 0xFFFFFF, metalness: 0.00, roughness: 0.90, map: texLabel }),
+        glass: std({ color: 0x0E1518, metalness: 0, roughness: 0.72,
+                     emissive: 0xFFFFFF, emissiveIntensity: 0.85, emissiveMap: texScreen })
+      };
+    }
+
+    var sets = [], layerMats = [], allMats = [];
+    for (var si = 0; si < 6; si++) {
+      var set = makeMats(), list = [];
+      for (var kk in set) {
+        var mm = set[kk];
+        list.push({ m: mm, c: mm.color.clone(), e: mm.envMapIntensity, ei: mm.emissiveIntensity });
+        allMats.push(mm);
+      }
+      sets.push(set);
+      layerMats.push(list);
+    }
 
     /* Коробка з фаскою по всіх ребрах. Саме фаска ловить світло вузькою
        смужкою — це те, за чим око впізнає фрезероване з металу. */
@@ -581,16 +664,18 @@
     var groups = [], anchors = [];
     for (var i = 0; i < 6; i++) { var g = new THREE.Group(); groups.push(g); scene.add(g); }
 
+    var M0 = sets[0], M1 = sets[1], M2 = sets[2], M3 = sets[3], M4 = sets[4], M5 = sets[5];
+
     /* 01 екран */
     groups[0].add(
-      part(3.86, 0.030, 1.00, matAlu, 0, 0, -0.52),
-      part(3.34, 0.014, 0.76, matDark, 0, 0.020, -0.52, 0.004),
-      plainPart(3.20, 0.006, 0.64, matGlass, 0, 0.030, -0.52)
+      part(3.86, 0.030, 1.00, M0.alu, 0, 0, -0.52),
+      part(3.34, 0.014, 0.76, M0.dark, 0, 0.020, -0.52, 0.004),
+      plainPart(3.20, 0.006, 0.64, M0.glass, 0, 0.030, -0.52)
     );
 
     /* 02 клавіатура */
-    groups[1].add(part(3.86, 0.028, 1.02, matAluIn, 0, 0, 0.52));
-    var keys = new THREE.InstancedMesh(chamferGeo(0.235, 0.060, 0.150, 0.016), matKey, 62);
+    groups[1].add(part(3.86, 0.028, 1.02, M1.aluIn, 0, 0, 0.52));
+    var keys = new THREE.InstancedMesh(chamferGeo(0.235, 0.060, 0.150, 0.016), M1.keyc, 62);
     var dummy = new THREE.Object3D(), n = 0;
     for (var r = 0; r < 5 && n < 62; r++) {
       for (var c2 = 0; c2 < 13 && n < 62; c2++) {
@@ -604,13 +689,13 @@
 
     /* 03 плата */
     groups[2].add(
-      part(3.78, 0.028, 2.00, matBoard, 0, 0, 0, 0.006),
-      part(0.62, 0.050, 0.62, matDark, -0.90, 0.039, -0.20, 0.008),
-      part(0.40, 0.035, 0.75, matDark,  0.60, 0.032,  0.10, 0.008),
-      part(0.30, 0.030, 0.30, matDark,  1.30, 0.029, -0.50, 0.006),
-      part(0.35, 0.060, 0.16, matCuDim, 1.55, 0.044,  0.85, 0.008)
+      part(3.78, 0.028, 2.00, M2.board, 0, 0, 0, 0.006),
+      part(0.62, 0.050, 0.62, M2.dark, -0.90, 0.039, -0.20, 0.008),
+      part(0.40, 0.035, 0.75, M2.dark,  0.60, 0.032,  0.10, 0.008),
+      part(0.30, 0.030, 0.30, M2.dark,  1.30, 0.029, -0.50, 0.006),
+      part(0.35, 0.060, 0.16, M2.cuDim, 1.55, 0.044,  0.85, 0.008)
     );
-    var pins = new THREE.InstancedMesh(new THREE.BoxGeometry(0.030, 0.075, 0.030), matCu, 20);
+    var pins = new THREE.InstancedMesh(new THREE.BoxGeometry(0.030, 0.075, 0.030), M2.cu, 20);
     for (var p2 = 0; p2 < 20; p2++) {
       dummy.position.set(-1.00 + p2 * 0.105, 0.050, 0.92);
       dummy.updateMatrix();
@@ -621,15 +706,15 @@
 
     /* 04 акумулятор */
     groups[3].add(
-      part(3.10, 0.155, 1.72, matDark, 0, 0, 0, 0.018),
-      plainPart(1.42, 0.003, 0.50, matLabel, -0.30, 0.079, 0.10),
-      part(0.12, 0.040, 0.16, matCu, -1.50, 0.040, -0.30, 0.008),
-      part(0.12, 0.040, 0.16, matCu, -1.50, 0.040,  0.30, 0.008)
+      part(3.10, 0.155, 1.72, M3.dark, 0, 0, 0, 0.018),
+      plainPart(1.42, 0.003, 0.50, M3.label, -0.30, 0.079, 0.10),
+      part(0.12, 0.040, 0.16, M3.cu, -1.50, 0.040, -0.30, 0.008),
+      part(0.12, 0.040, 0.16, M3.cu, -1.50, 0.040,  0.30, 0.008)
     );
 
     /* 05 радіатор */
-    groups[4].add(part(3.70, 0.045, 1.95, matCu, 0, -0.010, 0, 0.010));
-    var fins = new THREE.InstancedMesh(chamferGeo(0.045, 0.075, 1.62, 0.010), matCuDim, 15);
+    groups[4].add(part(3.70, 0.045, 1.95, M4.cu, 0, -0.010, 0, 0.010));
+    var fins = new THREE.InstancedMesh(chamferGeo(0.045, 0.075, 1.62, 0.010), M4.cuDim, 15);
     for (var f = 0; f < 15; f++) {
       dummy.position.set(-1.61 + f * 0.23, 0.050, 0);
       dummy.updateMatrix();
@@ -638,20 +723,85 @@
     fins.instanceMatrix.needsUpdate = true;
     groups[4].add(fins);
 
-    /* 06 корпус */
+    /* 06 корпус: дно, стінки, приливи під гвинти, ребра жорсткості.
+       Передня стінка складена з чотирьох сегментів — прорізи між ними і є
+       роз'єми, які видно, коли корпус від'їжджає вниз. */
     groups[5].add(
-      part(4.00, 0.050, 2.20, matAlu, 0, -0.205, 0, 0.014),
-      part(0.06, 0.42, 2.20, matAlu, -1.97, 0, 0, 0.012),
-      part(0.06, 0.42, 2.20, matAlu,  1.97, 0, 0, 0.012),
-      part(4.00, 0.42, 0.06, matAlu, 0, 0,  1.07, 0.012),
-      part(4.00, 0.42, 0.06, matAlu, 0, 0, -1.07, 0.012)
+      part(4.00, 0.050, 2.20, M5.alu, 0, -0.205, 0, 0.014),
+      part(0.06, 0.42, 2.20, M5.alu, -1.97, 0, 0, 0.012),
+      part(0.06, 0.42, 2.20, M5.alu,  1.97, 0, 0, 0.012),
+      part(4.00, 0.42, 0.06, M5.alu, 0, 0, -1.07, 0.012),
+      part(0.88, 0.42, 0.06, M5.alu, -1.56, 0, 1.07, 0.012),
+      part(0.68, 0.42, 0.06, M5.alu, -0.44, 0, 1.07, 0.012),
+      part(0.77, 0.42, 0.06, M5.alu,  0.485, 0, 1.07, 0.012),
+      part(0.97, 0.42, 0.06, M5.alu,  1.515, 0, 1.07, 0.012),
+      // самі роз'єми
+      part(0.32, 0.105, 0.09, M5.dark, -0.95, 0, 1.055, 0.012),
+      part(0.20, 0.055, 0.08, M5.dark,  0.00, 0, 1.055, 0.010),
+      part(0.15, 0.130, 0.08, M5.dark,  0.95, 0, 1.055, 0.020),
+      part(0.24, 0.030, 0.05, M5.cuDim, -0.95, 0, 1.045, 0.006)
     );
+    // ребра жорсткості на дні
+    for (var rb = -1; rb <= 1; rb++) {
+      groups[5].add(part(0.05, 0.075, 1.86, M5.aluIn, rb * 1.02, -0.145, 0, 0.010));
+    }
+    // приливи під гвинти
+    var bossGeo = new THREE.CylinderGeometry(0.082, 0.095, 0.16, 10);
+    var bosses = new THREE.InstancedMesh(bossGeo, M5.aluIn, 6);
+    var screwPos = [[-1.85, 0.92], [-1.85, 0], [-1.85, -0.92], [1.85, 0.92], [1.85, 0], [1.85, -0.92]];
+    for (var bi = 0; bi < 6; bi++) {
+      dummy.position.set(screwPos[bi][0], -0.10, screwPos[bi][1]);
+      dummy.updateMatrix();
+      bosses.setMatrixAt(bi, dummy.matrix);
+    }
+    bosses.instanceMatrix.needsUpdate = true;
+    groups[5].add(bosses);
 
     // шість гвинтів — вони ж перший такт анімації
     var scGeo = new THREE.CylinderGeometry(0.058, 0.052, 0.026, 12);
-    var caseScrews = new THREE.InstancedMesh(scGeo, matCuDim, 6);
-    var screwPos = [[-1.85, 0.92], [-1.85, 0], [-1.85, -0.92], [1.85, 0.92], [1.85, 0], [1.85, -0.92]];
+    var caseScrews = new THREE.InstancedMesh(scGeo, M5.cuDim, 6);
     groups[5].add(caseScrews);
+
+    /* М'які тіні. Кидає не «шар на наступний», а той, що фізично над ним:
+       екран і клавіатура лежать у різних половинах, тож обидва падають на плату. */
+    var shTex = shadowTexture(THREE);
+    var SHADOWS = [
+      { from: 0, to: 2, w: 3.95, d: 1.10, x: 0, z: -0.52, y:  0.017 },
+      { from: 1, to: 2, w: 3.95, d: 1.12, x: 0, z:  0.52, y:  0.017 },
+      { from: 2, to: 3, w: 3.85, d: 2.05, x: 0, z:  0,    y:  0.081 },
+      { from: 3, to: 4, w: 3.20, d: 1.80, x: 0, z:  0,    y:  0.092 },
+      { from: 4, to: 5, w: 3.80, d: 2.02, x: 0, z:  0,    y: -0.176 }
+    ];
+    var shadows = [];
+    for (var sd = 0; sd < SHADOWS.length; sd++) {
+      var S = SHADOWS[sd];
+      var sm = new THREE.MeshBasicMaterial({
+        map: shTex, transparent: true, depthWrite: false, opacity: 0, toneMapped: false
+      });
+      var pl = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), sm);
+      pl.rotation.x = -Math.PI / 2;
+      pl.position.set(S.x, S.y, S.z);
+      pl.scale.set(S.w, S.d, 1);
+      pl.renderOrder = -1;
+      groups[S.to].add(pl);
+      shadows.push({ mesh: pl, mat: sm, spec: S });
+    }
+
+    /* Світіння екрана. Повний ланцюг постобробки заради однієї яскравої
+       ділянки коштував би ще чотирьох запитів до CDN і ламався б на
+       прозорому тлі; адитивний квадрат дає той самий ефект задарма. */
+    var glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        map: glowTexture(THREE), transparent: true, depthWrite: false,
+        blending: THREE.AdditiveBlending, opacity: 0.6, toneMapped: false
+      })
+    );
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.set(0, 0.042, -0.52);
+    glow.scale.set(3.9, 1.25, 1);
+    glow.renderOrder = 2;
+    groups[0].add(glow);
 
     var ap = [
       [1.86, 0.03, -0.85], [1.86, 0.03, 0.85], [1.82, 0.04, 0.85],
@@ -666,14 +816,14 @@
 
     return {
       scene: scene, camera: camera, groups: groups, anchors: anchors,
-      mats: [matAlu, matAluIn, matCu, matCuDim],
+      mats: allMats, layerMats: layerMats, shadows: shadows, glow: glow,
       hemi: hemi, key: key, rim: rim,
       caseScrews: caseScrews, screwPos: screwPos, dummy: dummy,
       vec: new THREE.Vector3()
     };
   }
 
-  function applyThree(p, collapse) {
+  function applyThree(p, collapse, dt, idx) {
     var i, L, lo = 1e9, hi = -1e9;
 
     for (i = 0; i < 6; i++) {
@@ -682,6 +832,40 @@
       three.groups[i].rotation.set(us[i] * L.rx, 0, us[i] * L.rz);
       if (ys[i] - L.half < lo) lo = ys[i] - L.half;
       if (ys[i] + L.half > hi) hi = ys[i] + L.half;
+    }
+
+    /* Активний шар світиться на повну, решта притлумлюється. Робимо це
+       кольором і силою відображень, а не прозорістю: напівпрозорі деталі
+       довелося б сортувати, і вони почали б проступати одна крізь одну. */
+    for (i = 0; i < 6; i++) {
+      var tgt = (i === idx) ? 1 : 0.4;
+      dims[i] += (tgt - dims[i]) * (1 - Math.exp(-7 * Math.max(dt, 0.001)));
+      if (Math.abs(dims[i] - dimsPrev[i]) < 0.002) continue;
+      dimsPrev[i] = dims[i];
+      var lm = three.layerMats[i], fk = dims[i];
+      for (var j = 0; j < lm.length; j++) {
+        var em = lm[j];
+        em.m.color.copy(em.c).multiplyScalar(0.34 + 0.66 * fk);
+        em.m.envMapIntensity = em.e * (0.35 + 0.65 * fk);
+        if (em.ei) em.m.emissiveIntensity = em.ei * (0.25 + 0.75 * fk);
+      }
+    }
+
+    if (three.glow.visible) three.glow.material.opacity = 0.22 + 0.5 * dims[0];
+
+    // М'яка тінь верхньої деталі на тій, що під нею: щільна, поки вони поруч,
+    // і розмита та бліда, коли роз'їхалися.
+    for (var sI = 0; sI < three.shadows.length; sI++) {
+      var sh = three.shadows[sI], S = sh.spec;
+      var gap = (ys[S.from] - LAYERS[S.from].half) - (ys[S.to] + LAYERS[S.to].half);
+      var op = 0.55 * (1 - clamp(gap / 1.1, 0, 1)) * (0.35 + 0.65 * dims[S.to]);
+      sh.mesh.visible = fxOn && op > 0.012;
+      if (!sh.mesh.visible) continue;
+      sh.mat.opacity = op;
+      var kk = clamp(1 + gap * 0.22, 0.95, 1.7);
+      sh.mesh.scale.set(S.w * kk, S.d * kk, 1);
+      sh.mesh.position.x = S.x + (us[S.from] * LAYERS[S.from].dx - us[S.to] * LAYERS[S.to].dx);
+      sh.mesh.position.z = S.z + (us[S.from] * LAYERS[S.from].dz - us[S.to] * LAYERS[S.to].dz);
     }
 
     // Гвинти: викручуються на самому початку і вкручуються назад у фіналі.
@@ -718,21 +902,28 @@
     cam.position.set(Math.sin(az) * ch, cy + Math.sin(el) * dist, Math.cos(az) * ch);
     cam.lookAt(0, cy, 0);
 
+    // активна деталь підходить трохи до камери — саме «трохи», щоб не збити кадр
+    var fx = cam.position.x, fy = cam.position.y - cy, fz = cam.position.z;
+    var fl = Math.sqrt(fx * fx + fy * fy + fz * fz) || 1;
+    var kf = 0.18 * clamp((dims[idx] - 0.4) / 0.6, 0, 1);
+    three.groups[idx].position.x += fx / fl * kf;
+    three.groups[idx].position.y += fy / fl * kf;
+    three.groups[idx].position.z += fz / fl * kf;
+
     three.renderer.render(three.scene, cam);
 
     if (!leadOn) { if (lead.style.opacity !== '0') lead.style.opacity = '0'; return; }
 
     cam.updateMatrixWorld(true);
     three.scene.updateMatrixWorld(true);
-    var idx = lastIndex < 0 ? 0 : lastIndex;
     var v = three.vec;
     three.anchors[idx].getWorldPosition(v);
     v.project(cam);
 
     var onScreen = v.z <= 1 && Math.abs(v.x) < 0.98 && Math.abs(v.y) < 0.98;
-    var op = onScreen ? smoothstep(0.05, 0.35, us[idx]) * (1 - collapse) : 0;
-    lead.style.opacity = op.toFixed(2);
-    if (op <= 0) return;
+    var lop = onScreen ? smoothstep(0.05, 0.35, us[idx]) * (1 - collapse) : 0;
+    lead.style.opacity = lop.toFixed(2);
+    if (lop <= 0) return;
 
     var x = visOX + (v.x * 0.5 + 0.5) * visW;
     var y2 = visOY + (-v.y * 0.5 + 0.5) * visH;
@@ -762,6 +953,7 @@
     three = {
       renderer: renderer, scene: built.scene, camera: built.camera,
       groups: built.groups, anchors: built.anchors, mats: built.mats,
+      layerMats: built.layerMats, shadows: built.shadows, glow: built.glow,
       hemi: built.hemi, key: built.key, rim: built.rim,
       caseScrews: built.caseScrews, screwPos: built.screwPos, dummy: built.dummy,
       vec: built.vec
@@ -775,6 +967,7 @@
     canvas.addEventListener('webglcontextrestored', function () { if (running) wake(); });
 
     onTheme();
+    applyFx();
     measure();
     dirty = true;
     if (running) wake();
@@ -782,6 +975,7 @@
 
   /* --- 9. Старт --------------------------------------------------------- */
   labelTheme();
+  applyFx();
   setActive(0);
   measure();
   wake();

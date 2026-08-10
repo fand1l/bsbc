@@ -219,7 +219,7 @@ a { color: inherit; }
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  margin-block-end: clamp(40px, 7vw, 76px);
+  margin-block-end: 20px;
 }
 
 .figs {
@@ -246,6 +246,66 @@ a { color: inherit; }
 }
 
 .fig__k { font-size: 13px; line-height: 1.35; color: var(--muted); }
+
+/* --- 6a. Перемикач якості ---------------------------------------------- */
+.fxsw {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-block-end: clamp(28px, 5vw, 52px);
+  font: 500 12px/1 var(--font-data);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.fxsw__b {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-block-size: 44px;
+  padding: 0 4px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--copper-ink);
+}
+
+.fxsw__track {
+  inline-size: 38px;
+  block-size: 18px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-in);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  transition: border-color 140ms ease-out;
+}
+
+.fxsw__knob {
+  inline-size: 14px;
+  block-size: 12px;
+  background: var(--copper-ink);
+  transform: translateX(18px);
+  transition: transform 160ms ease-out, background 140ms ease-out;
+}
+
+.fxsw__b[aria-checked="false"] .fxsw__knob { transform: translateX(0); background: var(--muted); }
+.fxsw__b[aria-checked="false"] { color: var(--muted); }
+
+/* Віньєтка — чистий CSS, жодного кадру GPU. Крайній колір дорівнює тлу
+   секції, тому межа блоку сцени не проступає рамкою: модель просто
+   розчиняється в сторінці. */
+.vis::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(118% 96% at 50% 44%, transparent 54%, var(--mask) 100%);
+}
+
+.fx-off .vis::after { display: none; }
 
 /* --- 7. Кнопки ---------------------------------------------------------- */
 .btn {
@@ -665,6 +725,7 @@ a { color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .card { transition-duration: 1ms; }
+  .fxsw__knob { transition: none; }
   .skip-track { transition: none; }
   .btn { transition: none; }
   .screw__g { transition: none; }
