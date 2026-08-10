@@ -77,7 +77,8 @@
   var stickyPx = 0, denom = 0;
   var dims = [1, 0.4, 0.4, 0.4, 0.4, 0.4], dimsPrev = [-1, -1, -1, -1, -1, -1];
   var fxOn = true, fxManual = false;
-  var perfN = 0, perfSum = 0, perfSteps = 0, dprCapNow = 2;
+  var postOn = true, postDropped = false;
+  var perfN = 0, perfSum = 0, perfSteps = 0, perfWarm = 0, dprCapNow = 2;
 
   for (var gi = 0; gi < 5; gi++) {
     GAP0.push((LAYERS[gi].seat - LAYERS[gi].half) - (LAYERS[gi + 1].seat + LAYERS[gi + 1].half));
@@ -135,12 +136,24 @@
     if (savedFx === 'on' || savedFx === 'off') { fxOn = savedFx === 'on'; fxManual = true; }
   } catch (e) { /* приватний режим */ }
 
+  /* Світіння вмикається й вимикається в одному місці. Адитивний квадрат над
+     матрицею — це дешевий замінник справжнього ореола, тож він з'являється
+     рівно тоді, коли справжнього немає: разом вони давали б подвійне світло. */
+  function syncPost() {
+    postOn = fxOn && !postDropped;
+    if (three) {
+      if (three.post && !postOn) three.post.release();
+      if (three.glow) three.glow.visible = !postOn;
+    }
+    if (kb && kb.post && !postOn) kb.post.release();
+  }
+
   function applyFx() {
     root.classList.toggle('fx-off', !fxOn);
     fxBtn.setAttribute('aria-checked', fxOn ? 'true' : 'false');
     fxVal.textContent = fxOn ? 'якість' : 'швидкість';
+    syncPost();
     if (three) {
-      if (three.glow) three.glow.visible = fxOn;
       for (var i = 0; i < three.shadows.length; i++) {
         if (!fxOn) three.shadows[i].mesh.visible = false;
       }
@@ -157,7 +170,8 @@
   fxBtn.addEventListener('click', function () {
     fxOn = !fxOn;
     fxManual = true;
-    perfSteps = 2;               // людина вирішила сама — більше не втручаємось
+    perfSteps = 3;               // людина вирішила сама — більше не втручаємось
+    postDropped = false;         // і її «якість» скасовує наше попереднє зняття
     try { localStorage.setItem('k1-fx', fxOn ? 'on' : 'off'); } catch (e) { /* приватний режим */ }
     applyFx();
   });
@@ -288,21 +302,42 @@
      вдвічі знижується роздільна здатність рендера. Вигляд лишається той
      самий — падає лише кількість пікселів, а не якість матеріалів. */
   function watchPerf(dt) {
-    if (fxManual || perfSteps >= 2 || dt <= 0 || dt > 1) return;
+    if (fxManual || perfSteps >= 3 || dt <= 0 || dt > 1) return;
+    // Перші кадри не рахуються: там компіляція шейдерів, малювання текстур
+    // і завантаження шрифтів. Без цього навіть швидка відеокарта могла б
+    // одного разу не вкластися в тридцять мілісекунд і назавжди втратити
+    // якість — на рівному місці.
+    if (perfWarm < 45) { perfWarm++; return; }
     perfSum += dt; perfN++;
     if (perfN < 10 || perfSum < 1.2) return;
     var avg = perfSum / perfN;
     perfN = 0; perfSum = 0;
-    if (avg > 0.030 && dprCapNow > 1) {
-      // перший щабель: удвічі менше пікселів, вигляд той самий
+
+    if (avg <= 0.030) { perfSteps = 3; return; }   // швидкості вистачає
+
+    if (postOn) {
+      // перший щабель: знімаємо постобробку. Вона найдорожча — шість
+      // проходів і повнокадрова HDR-ціль — і водночас найбільш
+      // необов'язкова: без неї сцена та сама, просто без ореола.
+      perfSteps++;
+      postDropped = true;
+      syncPost();
+      return;
+    }
+
+    if (dprCapNow > 1) {
+      // другий щабель: удвічі менше пікселів, вигляд той самий
       perfSteps++;
       dprCapNow = Math.max(1, dprCapNow / 2);
       three.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCapNow));
       three.renderer.setSize(visW, visH, false);
-    } else if (avg > 0.055) {
-      // другий щабель, для зовсім слабкого заліза: прибираємо відображення.
+      return;
+    }
+
+    if (avg > 0.055) {
+      // третій щабель, для зовсім слабкого заліза: прибираємо відображення.
       // Метал стане простішим, зате сторінка лишиться керованою.
-      perfSteps = 2;
+      perfSteps = 3;
       three.scene.environment = null;
       for (var m = 0; m < three.mats.length; m++) {
         three.mats[m].metalness = 0.15;
@@ -311,9 +346,10 @@
       }
       three.key.intensity += 0.8;
       three.hemi.intensity += 0.5;
-    } else {
-      perfSteps = 2;   // швидкості вистачає, більше не міряємо
+      return;
     }
+
+    perfSteps = 3;
   }
 
   function wake() {
@@ -475,19 +511,83 @@
     return t;
   }
 
-  // Екран живий, але без вмісту: рівне матове підсвічування й слабкий
-  // відблиск антиблікового покриття. Жодних термінальних логів.
+  /* Екран живий, але без вмісту: рівне матове підсвічування й слабкий
+     відблиск антиблікового покриття. Жодних термінальних логів.
+
+     Поле навмисно світле. Разом із emissiveIntensity 2.9 воно дає в
+     лінійному просторі значення трохи більше за одиницю — саме стільки,
+     щоб виїмка постобробки взяла матрицю й не взяла корпус. Тобто
+     яскравість тут не «щоб гарніше», а поріг, за яким екран світиться. */
   function screenTexture(THREE) {
     var c = cv(256, 128), x = c.getContext('2d');
-    var g = x.createRadialGradient(128, 58, 10, 128, 64, 150);
-    g.addColorStop(0, '#3A4E5A');
-    g.addColorStop(0.55, '#22323C');
-    g.addColorStop(1, '#131C22');
+    var g = x.createRadialGradient(128, 62, 12, 128, 64, 168);
+    g.addColorStop(0, '#A6CADD');
+    g.addColorStop(0.55, '#74A3BE');
+    g.addColorStop(0.86, '#55809A');
+    g.addColorStop(1, '#35566A');
     x.fillStyle = g; x.fillRect(0, 0, 256, 128);
     var sheen = x.createLinearGradient(0, 0, 256, 128);
     sheen.addColorStop(0, 'rgba(255,255,255,0.05)');
     sheen.addColorStop(0.45, 'rgba(255,255,255,0)');
     x.fillStyle = sheen; x.fillRect(0, 0, 256, 128);
+    var t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+
+  /* Гніздо під гвинт. Малюється, а не вирізається в геометрії, і це свідомо.
+     Справжній отвір довелося б будувати кільцем сегментів навколо шести кіл
+     — інакше ніяк: темний циліндр усередині суцільної стінки не видно ніколи,
+     бо верхня грань стінки завжди ближча до камери. Ціна справжнього отвору —
+     сотні трикутників заради деталі шириною в двадцять пікселів.
+
+     Тому тут накладка: темне гирло, світлий серп на тій стінці, яку дістає
+     ключове світло (воно йде справа й спереду, тож серп ліворуч-угорі), і
+     ледь помітне кільце фаски. Під гострим кутом справжня зенківка все одно
+     виглядає темним овалом із однією підсвіченою дугою — саме цим. */
+  function boreTexture(THREE) {
+    var c = cv(128, 128), x = c.getContext('2d');
+    var g = x.createRadialGradient(64, 64, 4, 64, 64, 52);
+    g.addColorStop(0, 'rgba(10,12,14,0.96)');
+    g.addColorStop(0.62, 'rgba(16,19,22,0.92)');
+    g.addColorStop(0.90, 'rgba(28,32,36,0.55)');
+    g.addColorStop(1, 'rgba(40,44,48,0)');
+    x.fillStyle = g;
+    x.beginPath(); x.arc(64, 64, 56, 0, Math.PI * 2); x.fill();
+
+    x.save();
+    x.beginPath(); x.arc(64, 64, 44, 0, Math.PI * 2); x.clip();
+    x.strokeStyle = 'rgba(214,219,214,0.72)';
+    x.lineWidth = 9;
+    x.beginPath(); x.arc(70, 70, 40, Math.PI * 0.82, Math.PI * 1.62); x.stroke();
+    x.restore();
+
+    x.strokeStyle = 'rgba(232,236,232,0.30)';
+    x.lineWidth = 3;
+    x.beginPath(); x.arc(64, 64, 53, 0, Math.PI * 2); x.stroke();
+
+    var t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+
+  /* Шліц Torx на голівці. Окремою накладкою, а не текстурою самого циліндра:
+     розгортка циліндра обгортає всю картинку навколо бічної стінки, тож
+     зірка розповзлася б смугою по ребру голівки. Заразом це та сама зірка,
+     що й в індикаторах шарів збоку — підпис сторінки має збігатися з тим,
+     що показує сцена. */
+  function torxTexture(THREE) {
+    var c = cv(64, 64), x = c.getContext('2d');
+    x.translate(32, 32);
+    x.fillStyle = 'rgba(18,20,23,0.92)';
+    x.beginPath();
+    for (var i = 0; i <= 72; i++) {
+      var a = i / 72 * Math.PI * 2;
+      var r = 15 + 7 * Math.cos(a * 6);
+      var px = Math.cos(a) * r, py = Math.sin(a) * r;
+      if (i) x.lineTo(px, py); else x.moveTo(px, py);
+    }
+    x.closePath(); x.fill();
     var t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;
     return t;
@@ -715,8 +815,8 @@
         /* Блік на матриці більше не намальований у текстурі: скло має низьку
            шорсткість і високу силу відображень, тому ловить справжній софтбокс
            з оточення — і блік їде по екрану, коли модель повертається. */
-        glass: std({ color: 0x0A1014, metalness: 0.0, roughness: 0.26, envMapIntensity: 2.6,
-                     emissive: 0xFFFFFF, emissiveIntensity: 0.40, emissiveMap: texScreen })
+        glass: std({ color: 0x0A1014, metalness: 0.0, roughness: 0.26, envMapIntensity: 1.60,
+                     emissive: 0xFFFFFF, emissiveIntensity: 2.70, emissiveMap: texScreen })
       };
     }
 
@@ -827,14 +927,20 @@
     /* Отвори під гвинти. Були гвинти, що з'являлися нізвідки: вони висіли над
        порожнім бортом. Тепер під кожним є заглиблення, і коли гвинт виходить,
        на його місці лишається темний отвір. */
-    var boreGeo = new THREE.CylinderGeometry(0.062, 0.062, 0.10, 12);
-    var bores = new THREE.InstancedMesh(boreGeo, M5.dark, 6);
+    var boreMat = new THREE.MeshBasicMaterial({
+      map: boreTexture(THREE), transparent: true, depthWrite: false
+    });
+    var boreGeo = new THREE.PlaneGeometry(0.132, 0.132);
+    var bores = new THREE.InstancedMesh(boreGeo, boreMat, 6);
+    bores.renderOrder = 1;
     var screwPos = SCREWS_XZ;
     for (var bi = 0; bi < 6; bi++) {
-      dummy.position.set(screwPos[bi][0], WALL_TOP - 0.05, screwPos[bi][1]);
+      dummy.position.set(screwPos[bi][0], WALL_TOP + 0.0015, screwPos[bi][1]);
+      dummy.rotation.set(-Math.PI / 2, 0, 0);
       dummy.updateMatrix();
       bores.setMatrixAt(bi, dummy.matrix);
     }
+    dummy.rotation.set(0, 0, 0);
     bores.instanceMatrix.needsUpdate = true;
     groups[5].add(bores);
 
@@ -842,6 +948,19 @@
     var scGeo = new THREE.CylinderGeometry(0.056, 0.050, 0.030, 12);
     var caseScrews = new THREE.InstancedMesh(scGeo, M5.cuDim, 6);
     groups[5].add(caseScrews);
+
+    var torxMat = new THREE.MeshBasicMaterial({
+      map: torxTexture(THREE), transparent: true, depthWrite: false
+    });
+    var screwStars = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.098, 0.098), torxMat, 6);
+    screwStars.renderOrder = 2;
+    groups[5].add(screwStars);
+
+    /* Зірка живе у власній системі координат гвинта: спершу кладеться
+       плазом, потім піднімається на висоту голівки. Через це вона їде
+       разом із поворотом і зменшується разом із ним, а не висить окремо. */
+    var starLocal = new THREE.Matrix4().makeRotationX(-Math.PI / 2);
+    starLocal.setPosition(0, 0.0165, 0);
 
     /* М'які тіні. Кидає не «шар на наступний», а той, що фізично над ним:
        екран і клавіатура лежать у різних половинах, тож обидва падають на плату. */
@@ -937,6 +1056,7 @@
       flex: flex, flexGeo: flexGeo, flexPos: flexPos, flexSeg: FLEX_SEG,
       hemi: hemi, key: key, rim: rim, fill: fill,
       caseScrews: caseScrews, screwPos: screwPos, dummy: dummy,
+      screwStars: screwStars, starLocal: starLocal, starM: new THREE.Matrix4(),
       vec: new THREE.Vector3()
     };
   }
@@ -1036,19 +1156,28 @@
     // Гвинти: викручуються на самому початку і вкручуються назад у фіналі.
     var sf = win(SCREW_A, SCREW_B, p) * (1 - collapse);
     var d = three.dummy, sp = three.screwPos;
+    /* Гвинт не тане над отвором, а виходить убік. Раніше він танув рівно
+       там, звідки викрутився, і це читалося як «зник нізвідки»: рух угору
+       й зникнення в одній точці ока не переконують. Тепер він піднімається,
+       відходить від корпусу назовні, завалюється набік — і зникає вже
+       осторонь, коли отвір під ним видно і без нього. */
     for (i = 0; i < 6; i++) {
       var lag = clamp((sf - i * 0.06) / 0.7, 0, 1);
       var e = easeOut(lag, 2);
-      d.position.set(sp[i][0], WALL_TOP - 0.012 + e * 0.42, sp[i][1]);
-      d.rotation.set(0, e * 9.2, 0);
-      var s = 1 - smoothstep(0.72, 1, e);
+      var side = sp[i][0] > 0 ? 1 : -1;
+      d.position.set(sp[i][0] + side * e * 0.40, WALL_TOP - 0.012 + e * 0.52, sp[i][1] + e * 0.09);
+      d.rotation.set(e * 0.62 * side, e * 9.2, e * 0.28 * side);
+      var s = 1 - smoothstep(0.78, 1, e);
       d.scale.set(s, s, s);
       d.updateMatrix();
       three.caseScrews.setMatrixAt(i, d.matrix);
+      three.starM.multiplyMatrices(d.matrix, three.starLocal);
+      three.screwStars.setMatrixAt(i, three.starM);
     }
     d.scale.set(1, 1, 1);
     d.rotation.set(0, 0, 0);
     three.caseScrews.instanceMatrix.needsUpdate = true;
+    three.screwStars.instanceMatrix.needsUpdate = true;
 
     var cam = three.camera;
     var cy = (lo + hi) / 2;
@@ -1080,7 +1209,8 @@
        рівно в тому кадрі, з якого сторінка починається. */
     updateFlex();
 
-    three.renderer.render(three.scene, cam);
+    if (postOn && three.post.alive()) three.post.render(three.scene, cam);
+    else three.renderer.render(three.scene, cam);
 
     if (!leadOn) { if (lead.style.opacity !== '0') lead.style.opacity = '0'; return; }
 
@@ -1101,6 +1231,153 @@
     leadLine.setAttribute('points', sx + ',' + sy + ' ' + (sx - 28) + ',' + sy + ' ' + x.toFixed(1) + ',' + y2.toFixed(1));
     leadRing.setAttribute('cx', x.toFixed(1)); leadRing.setAttribute('cy', y2.toFixed(1));
     leadDot.setAttribute('cx', x.toFixed(1));  leadDot.setAttribute('cy', y2.toFixed(1));
+  }
+
+  /* --- 7a. Постобробка: справжнє світіння -------------------------------
+     Ланцюг написаний тут, а не взятий з examples/jsm. EffectComposer із
+     UnrealBloomPass — це ще вісім модулів із CDN, а джерел у нас два, з
+     ручним резервом, і дублювати цей резерв на цілу підпапку не хочеться.
+     Свій ланцюг ще й дешевший: UnrealBloom розмиває п'ять рівнів, тут
+     вистачає одного.
+
+     Як воно працює. Сцена йде не в канву, а в HDR-ціль: коли рендер іде в
+     render target, three НЕ застосовує тонову компресію (перевірено по
+     джерелу r185, WebGLPrograms), тож у буфері лишаються значення більші
+     за одиницю. Саме вони — підсвічена матриця й вузькі відблиски на
+     фасках — і мають світитися. Далі: виїмка за порогом у вчетверо меншу
+     ціль, дві пари розмиття (друга ширша — це вдвічі більший ореол за ту
+     саму ціну), зведення назад у канву. ACES і sRGB дописують ті самі
+     chunk'и, що й у звичайних матеріалів.
+
+     Прозорість канви збережено: сторінка просвічує крізь сцену, тому
+     альфа не викидається, а дорощується яскравістю ореола — інакше
+     світіння обривалося б рівно по силуету деталі. */
+  function makePost(THREE, renderer, cfg) {
+    var quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    var quadScene = new THREE.Scene();
+
+    var VS = 'varying vec2 vUv;\n' +
+             'void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+
+    function sm(uniforms, fs) {
+      return new THREE.ShaderMaterial({
+        uniforms: uniforms, vertexShader: VS, fragmentShader: fs,
+        depthTest: false, depthWrite: false
+      });
+    }
+
+    var cut = sm(
+      { tSrc: { value: null }, uCut: { value: cfg.cut }, uSoft: { value: 0.40 } },
+      'uniform sampler2D tSrc;\nuniform float uCut;\nuniform float uSoft;\nvarying vec2 vUv;\n' +
+      'void main(){\n' +
+      '  vec3 c = texture2D(tSrc, vUv).rgb;\n' +
+      '  float l = max(c.r, max(c.g, c.b));\n' +
+      '  gl_FragColor = vec4(c * smoothstep(uCut, uCut + uSoft, l), 1.0);\n' +
+      '}'
+    );
+
+    // п'ять вибірок замість дев'яти: зсуви підібрані так, щоб лінійна
+    // фільтрація сама доважувала сусідні тексели
+    var blur = sm(
+      { tSrc: { value: null }, uStep: { value: new THREE.Vector2() } },
+      'uniform sampler2D tSrc;\nuniform vec2 uStep;\nvarying vec2 vUv;\n' +
+      'void main(){\n' +
+      '  vec3 s = texture2D(tSrc, vUv).rgb * 0.2270270;\n' +
+      '  s += (texture2D(tSrc, vUv + uStep * 1.3846154).rgb\n' +
+      '      + texture2D(tSrc, vUv - uStep * 1.3846154).rgb) * 0.3162162;\n' +
+      '  s += (texture2D(tSrc, vUv + uStep * 3.2307692).rgb\n' +
+      '      + texture2D(tSrc, vUv - uStep * 3.2307692).rgb) * 0.0702702;\n' +
+      '  gl_FragColor = vec4(s, 1.0);\n' +
+      '}'
+    );
+
+    var comp = sm(
+      { tScene: { value: null }, tBloom: { value: null }, uAmt: { value: cfg.amount } },
+      'uniform sampler2D tScene;\nuniform sampler2D tBloom;\nuniform float uAmt;\nvarying vec2 vUv;\n' +
+      'void main(){\n' +
+      '  vec4 base = texture2D(tScene, vUv);\n' +
+      '  vec3 b = texture2D(tBloom, vUv).rgb * uAmt;\n' +
+      '  gl_FragColor = vec4(base.rgb + b, min(1.0, base.a + dot(b, vec3(0.30, 0.59, 0.11))));\n' +
+      '  #include <tonemapping_fragment>\n' +
+      '  #include <colorspace_fragment>\n' +
+      '}'
+    );
+
+    var quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), cut);
+    quad.frustumCulled = false;
+    quadScene.add(quad);
+
+    var size = new THREE.Vector2();
+    var rtS = null, rtA = null, rtB = null;
+    var W = 0, H = 0, bw = 0, bh = 0, dead = false;
+
+    function free() {
+      if (!rtS) return;
+      rtS.dispose(); rtA.dispose(); rtB.dispose();
+      rtS = rtA = rtB = null;
+      W = 0; H = 0;
+    }
+
+    function alloc() {
+      renderer.getDrawingBufferSize(size);
+      var w = Math.max(1, size.x | 0), h = Math.max(1, size.y | 0);
+      if (rtS && w === W && h === H) return true;
+      free();
+      W = w; H = h;
+      bw = Math.max(2, Math.round(w / 4));
+      bh = Math.max(2, Math.round(h / 4));
+      try {
+        // Згладжування лишаємо там, де воно й було: на високій щільності
+        // пікселів його й раніше вимикали, а HDR-ціль на чотири вибірки
+        // коштує вчетверо більше пам'яті.
+        rtS = new THREE.WebGLRenderTarget(w, h, {
+          type: THREE.HalfFloatType, depthBuffer: true, stencilBuffer: false,
+          samples: renderer.getPixelRatio() <= 1.5 ? 4 : 0
+        });
+        var o = { type: THREE.HalfFloatType, depthBuffer: false, stencilBuffer: false };
+        rtA = new THREE.WebGLRenderTarget(bw, bh, o);
+        rtB = new THREE.WebGLRenderTarget(bw, bh, o);
+      } catch (e) {
+        free();
+        dead = true;      // немає HDR-цілей — сторінка просто малює як раніше
+        return false;
+      }
+      return true;
+    }
+
+    function pass(mat, src, dst) {
+      mat.uniforms.tSrc.value = src.texture;
+      quad.material = mat;
+      renderer.setRenderTarget(dst);
+      renderer.render(quadScene, quadCam);
+    }
+
+    return {
+      alive: function () { return !dead; },
+      release: free,
+      render: function (scene, camera) {
+        if (dead || !alloc()) {
+          renderer.setRenderTarget(null);
+          renderer.render(scene, camera);
+          return;
+        }
+
+        renderer.setRenderTarget(rtS);
+        renderer.render(scene, camera);
+
+        pass(cut, rtS, rtA);
+        blur.uniforms.uStep.value.set(1 / bw, 0);   pass(blur, rtA, rtB);
+        blur.uniforms.uStep.value.set(0, 1 / bh);   pass(blur, rtB, rtA);
+        blur.uniforms.uStep.value.set(2.4 / bw, 0); pass(blur, rtA, rtB);
+        blur.uniforms.uStep.value.set(0, 2.4 / bh); pass(blur, rtB, rtA);
+
+        comp.uniforms.tScene.value = rtS.texture;
+        comp.uniforms.tBloom.value = rtA.texture;
+        quad.material = comp;
+        renderer.setRenderTarget(null);
+        renderer.render(quadScene, quadCam);
+      }
+    };
   }
 
   function initThree() {
@@ -1125,11 +1402,13 @@
     three = {
       renderer: renderer, scene: built.scene, camera: built.camera,
       groups: built.groups, anchors: built.anchors, mats: built.mats,
+      screwStars: built.screwStars, starLocal: built.starLocal, starM: built.starM,
       layerMats: built.layerMats, shadows: built.shadows, glow: built.glow,
       flex: built.flex, flexGeo: built.flexGeo, flexPos: built.flexPos, flexSeg: built.flexSeg,
       hemi: built.hemi, key: built.key, rim: built.rim, fill: built.fill,
       caseScrews: built.caseScrews, screwPos: built.screwPos, dummy: built.dummy,
-      vec: built.vec
+      vec: built.vec,
+      post: makePost(THREE, renderer, { cut: 1.00, amount: 0.60 })
     };
 
     var ctxLost = false;
@@ -1189,14 +1468,16 @@
     var matKey   = new THREE.MeshStandardMaterial({ color: 0x3C4048, metalness: 0.16, roughness: 0.40, envMapIntensity: 1.3 });
     scene.add(new THREE.Mesh(chamfer(THREE, 3.86, 0.028, 1.02, 0.012), matPlate));
 
-    // підсвітка світить із-під клавіш і видно її саме в зазорах між ними
-    var lit = new THREE.Mesh(
-      new THREE.PlaneGeometry(3.7, 0.95),
-      new THREE.MeshBasicMaterial({
-        map: glowTexture(THREE), transparent: true, depthWrite: false,
-        blending: THREE.AdditiveBlending, color: 0xC9773F, opacity: 0, toneMapped: false
-      })
-    );
+    /* Підсвітка світить із-під клавіш, і видно її саме в зазорах між ними.
+       Колір узятий не з палітри «як є», а помножений: THREE.Color тримає
+       звичайні числа з рухомою комою, тож 2,4 по червоному — це законне
+       значення, більше за одиницю, яке постобробка й забирає в ореол. */
+    var litMat = new THREE.MeshBasicMaterial({
+      map: glowTexture(THREE), transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending, opacity: 0, toneMapped: false
+    });
+    litMat.color.setRGB(2.35, 1.05, 0.42);
+    var lit = new THREE.Mesh(new THREE.PlaneGeometry(3.7, 0.95), litMat);
     lit.rotation.x = -Math.PI / 2;
     lit.position.set(0, 0.020, 0.52);
     scene.add(lit);
@@ -1211,7 +1492,10 @@
     }
     scene.add(keys);
 
-    return { renderer: renderer, scene: scene, camera: camera, keys: keys, cols: cols, d: d, lit: lit };
+    return {
+      renderer: renderer, scene: scene, camera: camera, keys: keys, cols: cols, d: d, lit: lit,
+      post: makePost(THREE, renderer, { cut: 0.90, amount: 1.05 })
+    };
   }
 
   function kbFrame() {
@@ -1247,8 +1531,13 @@
     }
     kb.keys.instanceMatrix.needsUpdate = true;
     kb.lit.material.opacity = fxOn ? 0.30 + 0.22 * Math.sin(t * 0.7) * Math.sin(t * 0.7) : 0;
+    // без постобробки нікуди дівати значення понад одиницю: вони просто
+    // зріжуться в помаранчеву пляму, тож там колір лишається звичайним
+    if (postOn) kb.lit.material.color.setRGB(2.35, 1.05, 0.42);
+    else kb.lit.material.color.setRGB(0.62, 0.28, 0.11);
 
-    kb.renderer.render(kb.scene, kb.camera);
+    if (postOn && kb.post.alive()) kb.post.render(kb.scene, kb.camera);
+    else kb.renderer.render(kb.scene, kb.camera);
   }
 
   function kbStart() {
