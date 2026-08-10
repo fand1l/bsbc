@@ -9,28 +9,35 @@
    • згладжування — експоненційне з поправкою на dt, з праймом на першому
      кадрі й після будь-якого стрибка, щоб не було ривка на старті;
    • DOM пишеться тільки коли активний шар змінився, а не щокадру;
+   • жоден шар не рушає вниз, поки корпус під ним не звільнив дорогу;
    • якщо three.js або WebGL недоступні — та сама змінна прогресу керує
      плоскою схемою, і сторінка лишається робочою.
    ========================================================================= */
 (function () {
   'use strict';
 
-  /* --- дані шарів ------------------------------------------------------- */
-  // seat — де шар сидить у зібраному пристрої (світові одиниці, 1 ≈ 37 мм)
-  // travel — куди він доїжджає; ease — показник кривої; dx/dz — бічний знос
+  /* --- дані шарів -------------------------------------------------------
+     seat — де шар сидить у зібраному пристрої (світові одиниці, 1 ≈ 37 мм)
+     ms/md — коли починається і скільки триває його рух
+     cs — коли перемикається його картка
+     Корпус рушає раніше за акумулятор і радіатор навмисне: він їх тримає,
+     і поки він на місці, вниз їм нема куди. Саме через зворотний порядок
+     деталі раніше проходили крізь дно. */
   var LAYERS = [
-    { no: '01', name: 'екран',      seat:  0.222, half: 0.035, travel:  3.30, ease: 3, dx:  0.10, dz: -0.04, rz:  0.020, rx: 0 },
-    { no: '02', name: 'клавіатура', seat:  0.225, half: 0.040, travel:  2.00, ease: 4, dx: -0.08, dz:  0.05, rz: -0.015, rx: 0 },
-    { no: '03', name: 'плата',      seat:  0.150, half: 0.045, travel:  0.85, ease: 3, dx:  0.05, dz:  0.06, rz: 0,      rx:  0.012 },
-    { no: '04', name: 'акумулятор', seat:  0.030, half: 0.085, travel: -0.45, ease: 2, dx:  0.07, dz: -0.03, rz: 0,      rx: -0.010 },
-    { no: '05', name: 'радіатор',   seat: -0.130, half: 0.075, travel: -1.70, ease: 3, dx: -0.05, dz:  0.04, rz:  0.014, rx: 0 },
-    { no: '06', name: 'корпус',     seat: -0.030, half: 0.245, travel: -3.00, ease: 4, dx:  0,    dz:  0,    rz: 0,      rx:  0.008 }
+    { no: '01', name: 'екран',      seat:  0.222, half: 0.035, travel:  3.30, ease: 3, ms: 0.06, md: 0.18, cs: 0.06, dx:  0.10, dz: -0.04, rz:  0.020, rx: 0 },
+    { no: '02', name: 'клавіатура', seat:  0.225, half: 0.040, travel:  2.05, ease: 4, ms: 0.17, md: 0.18, cs: 0.17, dx: -0.08, dz:  0.05, rz: -0.015, rx: 0 },
+    { no: '03', name: 'плата',      seat:  0.150, half: 0.045, travel:  0.90, ease: 3, ms: 0.28, md: 0.18, cs: 0.28, dx:  0.05, dz:  0.06, rz: 0,      rx:  0.012 },
+    { no: '04', name: 'акумулятор', seat:  0.030, half: 0.085, travel: -0.55, ease: 2, ms: 0.46, md: 0.22, cs: 0.46, dx:  0.07, dz: -0.03, rz: 0,      rx: -0.010 },
+    { no: '05', name: 'радіатор',   seat: -0.130, half: 0.075, travel: -1.85, ease: 3, ms: 0.40, md: 0.26, cs: 0.54, dx: -0.05, dz:  0.04, rz:  0.014, rx: 0 },
+    { no: '06', name: 'корпус',     seat: -0.030, half: 0.245, travel: -3.10, ease: 2, ms: 0.33, md: 0.30, cs: 0.64, dx:  0,    dz:  0,    rz: 0,      rx:  0.008 }
   ];
 
-  var LEAD = 0.03;     // мертвий хід на початку доріжки
-  var DUR  = 0.19;     // скільки прогресу займає роз'їзд одного шару
-  var STRIDE = 0.132;  // зсув між шарами; останній завершується на 0,880,
-                       // решта доріжки — витримка, де стос стоїть зібрано-розібраним
+  // зазор між сусідніми шарами в зібраному пристрої; від'ємний там, де
+  // деталі вкладені одна в одну (стінки корпусу охоплюють решту)
+  var GAP0 = [];
+  var SCREW_A = 0.015, SCREW_B = 0.060;   // гвинти викручуються перед усім
+  var HOLD_A  = 0.70,  HOLD_B  = 0.86;    // витримка: розібраний пристрій стоїть
+  var COLLAPSE = 0.86;                    // далі складається назад
   var SMOOTH_K = 12;
 
   /* --- вузли ------------------------------------------------------------ */
@@ -47,25 +54,69 @@
   var cards  = Array.prototype.slice.call(cardsBox.querySelectorAll('.card'));
   var flats  = Array.prototype.slice.call(flat.querySelectorAll('.flat__p'));
   var screwsBox = document.getElementById('screws');
+  var themeBtn  = document.getElementById('theme');
   var ann    = document.getElementById('ann');
   var root   = document.documentElement;
 
   /* --- стан ------------------------------------------------------------- */
   var motionMQ = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var themeMQ  = window.matchMedia('(prefers-color-scheme: dark)');
   var reduced = motionMQ.matches;
-  var progress = 0, smoothed = 0, primed = false;
+  var smoothed = 0, primed = false;
   var lastIndex = -1, lastFrame = 0, rafId = 0, running = false, dirty = true;
   var us = [0, 0, 0, 0, 0, 0];
-  var three = null;          // { renderer, scene, camera, groups, anchors, vec }
-  var visW = 0, visH = 0, visOX = 0, visOY = 0, cardX = 0, cardAnchorY = 0, leadOn = false, spread = 1;
+  var ys = [0, 0, 0, 0, 0, 0];
+  var three = null;
+  var visW = 0, visH = 0, visOX = 0, visOY = 0, cardX = 0, cardAnchorY = 0;
+  var leadOn = false, spread = 1;
   var annTimer = 0, lastDrawn = -1, staticMode = false;
-  var stickyPx = 0, denom = 0;   // кешуються в measure(), не читаються щокадру
+  var stickyPx = 0, denom = 0;
+  var perfN = 0, perfSum = 0, perfSteps = 0, dprCapNow = 2;
+
+  for (var gi = 0; gi < 5; gi++) {
+    GAP0.push((LAYERS[gi].seat - LAYERS[gi].half) - (LAYERS[gi + 1].seat + LAYERS[gi + 1].half));
+  }
 
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
   function easeOut(u, k) { return 1 - Math.pow(1 - u, k); }
   function smoothstep(a, b, x) { var t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
+  function win(a, b, x) { return clamp((x - a) / (b - a), 0, 1); }
 
-  /* --- 1. Гвинти-індикатори -------------------------------------------- */
+  /* --- 1. Тема ---------------------------------------------------------- */
+  function isDark() {
+    var t = root.dataset.theme;
+    return t ? t === 'dark' : themeMQ.matches;
+  }
+
+  function labelTheme() {
+    themeBtn.setAttribute('aria-label',
+      isDark() ? 'Перемкнути на світлу тему' : 'Перемкнути на темну тему');
+  }
+
+  function onTheme() {
+    labelTheme();
+    if (three) {
+      var dark = isDark();
+      three.renderer.toneMappingExposure = dark ? 0.92 : 1.12;
+      three.scene.environmentIntensity = dark ? 0.7 : 1.0;
+      three.key.intensity = dark ? 1.1 : 1.8;
+      three.rim.intensity = dark ? 0.5 : 0.7;
+      three.hemi.intensity = dark ? 0.35 : 0.6;
+    }
+    dirty = true;
+    wake();
+  }
+
+  themeBtn.addEventListener('click', function () {
+    var next = isDark() ? 'light' : 'dark';
+    root.dataset.theme = next;
+    try { localStorage.setItem('k1-theme', next); } catch (e) { /* приватний режим */ }
+    onTheme();
+  });
+
+  themeMQ.addEventListener('change', function () { if (!root.dataset.theme) onTheme(); });
+
+  /* --- 2. Гвинти-індикатори -------------------------------------------- */
   var SCREW_SVG =
     '<svg class="screw__g" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">' +
       '<line class="screw__thread" x1="22" y1="12" x2="12" y2="12"/>' +
@@ -89,10 +140,9 @@
 
   function goToLayer(i) {
     if (denom <= 0) return;
-    var target = LEAD + i * STRIDE + DUR * 0.72;              // шар уже приїхав
+    var L = LAYERS[i];
+    var target = i === 5 ? L.cs + 0.03 : L.ms + L.md * 0.8;
     var top = window.scrollY + track.getBoundingClientRect().top - stickyPx + target * denom;
-    // стрибок робимо миттєвим завжди: плавний скрол на кілька тисяч пікселів
-    // гірший за миттєвий для всіх, а не лише за prefers-reduced-motion
     window.scrollTo({ top: top, behavior: 'instant' });
     primed = false;
     dirty = true;
@@ -105,26 +155,36 @@
     denom = track.offsetHeight - stage.offsetHeight;
   }
 
-  /* --- 2. Прогрес і застосування --------------------------------------- */
-  function layerU(i, p) {
-    return easeOut(clamp((p - (LEAD + i * STRIDE)) / DUR, 0, 1), LAYERS[i].ease);
-  }
-
-  // Картка перемикається трохи згодом за початком руху шару, щоб деталь
-  // на екрані вже виїжджала, коли з’являється її підпис.
+  /* --- 3. Прогрес ------------------------------------------------------- */
   function activeFrom(p) {
     var idx = 0;
-    for (var i = 0; i < LAYERS.length; i++) if (p >= LEAD + i * STRIDE + 0.045) idx = i;
+    for (var i = 0; i < LAYERS.length; i++) if (p >= LAYERS[i].cs) idx = i;
     return idx;
   }
 
   function apply(p) {
-    var i;
-    for (i = 0; i < LAYERS.length; i++) us[i] = layerU(i, p);
+    var i, L;
+    var collapse = smoothstep(COLLAPSE, 1, p);          // складання назад
+    collapse = collapse * collapse;                      // прискорення до кінця
 
-    if (three) applyThree(p);
+    for (i = 0; i < 6; i++) {
+      L = LAYERS[i];
+      us[i] = easeOut(win(L.ms, L.ms + L.md, p), L.ease) * (1 - collapse);
+      ys[i] = L.seat + us[i] * L.travel * spread;
+    }
+
+    /* Запобіжник: сусідні шари ніколи не зближуються тісніше, ніж вони
+       стоять у зібраному пристрої. Хореографія й так це виключає (нижні їдуть
+       першими), але правило має бути в коді, а не триматися на вдало
+       підібраних числах — саме через його відсутність деталі проходили
+       крізь корпус. Прохід знизу вгору, щоб поправка поширювалася вище. */
+    for (i = 4; i >= 0; i--) {
+      var minC = ys[i + 1] + LAYERS[i + 1].half + GAP0[i] + LAYERS[i].half;
+      if (ys[i] < minC) ys[i] = minC;
+    }
+
+    if (three) applyThree(p, collapse);
     else for (i = 0; i < flats.length; i++) {
-      // плоска схема: та сама послідовність, у пікселях
       flats[i].style.setProperty('--y', (us[i] * LAYERS[i].travel * -22).toFixed(1));
     }
 
@@ -137,8 +197,6 @@
   function setActive(idx) {
     lastIndex = idx;
     for (var i = 0; i < cards.length; i++) {
-      // На дуже низьких екранах липкої сцени немає і всі шість карток видимі
-      // списком — тоді жодна з них не має бути inert.
       var on = staticMode || i === idx;
       if (on) cards[i].setAttribute('data-on', ''); else cards[i].removeAttribute('data-on');
       cards[i].inert = !on;
@@ -151,17 +209,17 @@
     }, 500);
   }
 
-  /* --- 3. Цикл ---------------------------------------------------------- */
+  /* --- 4. Цикл ---------------------------------------------------------- */
   function frame(now) {
     rafId = requestAnimationFrame(frame);
 
-    var dt = Math.min((now - lastFrame) / 1000, 0.05);
+    var raw = (now - lastFrame) / 1000;
+    var dt = Math.min(raw, 0.05);
     lastFrame = now;
 
     var t = denom > 0
       ? clamp((stickyPx - track.getBoundingClientRect().top) / denom, 0, 1)
       : 0;
-    progress = t;
 
     if (!primed || reduced || Math.abs(t - smoothed) > 0.25) {
       smoothed = t;
@@ -170,13 +228,45 @@
       smoothed += (t - smoothed) * (1 - Math.exp(-SMOOTH_K * dt));
     }
 
-    // під prefers-reduced-motion немає ні згладжування, ні коливання камери,
-    // тож кадр перемальовується лише коли прогрес реально змінився
     if (reduced && !dirty && Math.abs(smoothed - lastDrawn) < 0.0002) return;
     lastDrawn = smoothed;
     dirty = false;
 
     apply(smoothed);
+    if (three) watchPerf(raw);
+  }
+
+  /* Реального GPU в оточенні розробки не було, тож замість здогадів про
+     продуктивність сторінка міряє себе сама: якщо кадр стабільно довгий,
+     вдвічі знижується роздільна здатність рендера. Вигляд лишається той
+     самий — падає лише кількість пікселів, а не якість матеріалів. */
+  function watchPerf(dt) {
+    if (perfSteps >= 2 || dt <= 0 || dt > 1) return;
+    perfSum += dt; perfN++;
+    if (perfN < 10 || perfSum < 1.2) return;
+    var avg = perfSum / perfN;
+    perfN = 0; perfSum = 0;
+    if (avg > 0.030 && dprCapNow > 1) {
+      // перший щабель: удвічі менше пікселів, вигляд той самий
+      perfSteps++;
+      dprCapNow = Math.max(1, dprCapNow / 2);
+      three.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCapNow));
+      three.renderer.setSize(visW, visH, false);
+    } else if (avg > 0.055) {
+      // другий щабель, для зовсім слабкого заліза: прибираємо відображення.
+      // Метал стане простішим, зате сторінка лишиться керованою.
+      perfSteps = 2;
+      three.scene.environment = null;
+      for (var m = 0; m < three.mats.length; m++) {
+        three.mats[m].metalness = 0.15;
+        three.mats[m].roughness = 0.7;
+        three.mats[m].needsUpdate = true;
+      }
+      three.key.intensity += 0.8;
+      three.hemi.intensity += 0.5;
+    } else {
+      perfSteps = 2;   // швидкості вистачає, більше не міряємо
+    }
   }
 
   function wake() {
@@ -206,8 +296,7 @@
     if (document.hidden) sleep(); else if (running) wake();
   });
 
-  // Обробник скролу нічого не рендерить: він лише позначає кадр брудним,
-  // щоб цикл прокинувся, коли згладжування вимкнене.
+  // Обробник скролу нічого не рендерить: він лише позначає кадр брудним.
   window.addEventListener('scroll', function () { dirty = true; }, { passive: true });
 
   motionMQ.addEventListener('change', function (e) {
@@ -216,7 +305,7 @@
     dirty = true;
   });
 
-  /* --- 4. Розміри ------------------------------------------------------- */
+  /* --- 5. Розміри ------------------------------------------------------- */
   var staticMQ = window.matchMedia('(max-height: 330px)');
 
   function measure() {
@@ -224,6 +313,7 @@
     var wasStatic = staticMode;
     staticMode = staticMQ.matches;
     if (wasStatic !== staticMode) setActive(lastIndex < 0 ? 0 : lastIndex);
+
     var r = vis.getBoundingClientRect();
     var sr = stage.getBoundingClientRect();
     visW = Math.max(1, Math.round(r.width));
@@ -231,7 +321,6 @@
     leadOn = getComputedStyle(lead).display !== 'none';
     spread = visW < 700 ? 0.78 : 1;
 
-    // виноска малюється у координатах .stage, щоб дотягуватися до картки
     visOX = r.left - sr.left;
     visOY = r.top - sr.top;
     var cr = cardsBox.getBoundingClientRect();
@@ -239,8 +328,7 @@
     cardAnchorY = clamp(cr.top + Math.min(cr.height, 130) * 0.5 - sr.top, 8, sr.height - 8);
 
     if (three) {
-      var dprCap = window.innerWidth < 768 ? 1.5 : 2;
-      three.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap));
+      three.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCapNow));
       three.renderer.setSize(visW, visH, false);
       three.camera.aspect = visW / visH;
       three.camera.updateProjectionMatrix();
@@ -253,7 +341,7 @@
   window.addEventListener('orientationchange', function () { setTimeout(measure, 250); });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
 
-  /* --- 5. Форма --------------------------------------------------------- */
+  /* --- 6. Форма --------------------------------------------------------- */
   var form = document.getElementById('form');
   var formOut = document.getElementById('formOut');
   var mail = document.getElementById('mail');
@@ -270,7 +358,146 @@
       'не з’єднана: адреса залишилася у вкладці й зникне разом з нею.';
   });
 
-  /* --- 6. Тривимірна сцена ---------------------------------------------- */
+  /* --- 7. Процедурні текстури ------------------------------------------
+     Малюються кодом при старті. Жоден файл не завантажується. */
+  function cv(w, h) {
+    var c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    return c;
+  }
+
+  // простий детермінований генератор, щоб малюнок був той самий щоразу
+  function rng(seed) {
+    return function () { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+  }
+
+  function boardTexture(THREE) {
+    var c = cv(1024, 512), x = c.getContext('2d'), rnd = rng(7);
+    x.fillStyle = '#3B2A57'; x.fillRect(0, 0, 1024, 512);
+
+    // мідні доріжки
+    x.lineCap = 'round';
+    for (var i = 0; i < 46; i++) {
+      x.strokeStyle = 'rgba(184,115,51,' + (0.35 + rnd() * 0.5).toFixed(2) + ')';
+      x.lineWidth = 1 + Math.round(rnd() * 2);
+      var px = rnd() * 1024, py = rnd() * 512;
+      x.beginPath(); x.moveTo(px, py);
+      for (var s = 0; s < 4; s++) {
+        px += (rnd() - 0.5) * 260;
+        py += (rnd() < 0.5 ? -1 : 1) * rnd() * 90;
+        x.lineTo(Math.round(px), Math.round(py));
+      }
+      x.stroke();
+    }
+
+    // перехідні отвори
+    for (var v = 0; v < 90; v++) {
+      x.fillStyle = '#C98A4B';
+      x.beginPath(); x.arc(rnd() * 1024, rnd() * 512, 2.6, 0, 6.283); x.fill();
+    }
+
+    // шовкографія
+    x.fillStyle = 'rgba(231,228,220,0.82)';
+    x.font = '500 15px ui-monospace, monospace';
+    var marks = ['К1-03', 'U1', 'U2', 'U3', 'J1', 'GPIO 1—40', 'REV.C', 'C11', 'R7'];
+    for (var m = 0; m < marks.length; m++) {
+      x.fillText(marks[m], 40 + (m % 3) * 330, 60 + Math.floor(m / 3) * 150);
+    }
+    x.strokeStyle = 'rgba(231,228,220,0.5)'; x.lineWidth = 2;
+    x.strokeRect(26, 26, 1024 - 52, 512 - 52);
+
+    var t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    return t;
+  }
+
+  function labelTexture(THREE) {
+    var c = cv(512, 180), x = c.getContext('2d');
+    x.fillStyle = '#E7E4DC'; x.fillRect(0, 0, 512, 180);
+    x.fillStyle = '#1A1C20';
+    x.font = '600 34px ui-monospace, monospace';
+    x.fillText('6000 мА·год', 26, 64);
+    x.font = '400 24px ui-monospace, monospace';
+    x.fillText('Li-ion · 3,85 В · знімний', 26, 104);
+    x.fillRect(26, 126, 300, 3);
+    x.font = '400 20px ui-monospace, monospace';
+    x.fillText('К1-04 · заміна без інструменту', 26, 158);
+    var t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+
+  // Екран живий, але без вмісту: рівне матове підсвічування й слабкий
+  // відблиск антиблікового покриття. Жодних термінальних логів.
+  function screenTexture(THREE) {
+    var c = cv(256, 128), x = c.getContext('2d');
+    var g = x.createRadialGradient(128, 58, 10, 128, 64, 150);
+    g.addColorStop(0, '#3A4E5A');
+    g.addColorStop(0.55, '#22323C');
+    g.addColorStop(1, '#131C22');
+    x.fillStyle = g; x.fillRect(0, 0, 256, 128);
+    var sheen = x.createLinearGradient(0, 0, 256, 128);
+    sheen.addColorStop(0, 'rgba(255,255,255,0.05)');
+    sheen.addColorStop(0.45, 'rgba(255,255,255,0)');
+    x.fillStyle = sheen; x.fillRect(0, 0, 256, 128);
+    var t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+
+  // шліфування алюмінію — тонкі штрихи в шорсткості
+  function brushTexture(THREE) {
+    var c = cv(256, 256), x = c.getContext('2d'), rnd = rng(3);
+    x.fillStyle = '#8a8a8a'; x.fillRect(0, 0, 256, 256);
+    for (var i = 0; i < 900; i++) {
+      var a = 0.04 + rnd() * 0.08;
+      x.strokeStyle = (rnd() < 0.5 ? 'rgba(255,255,255,' : 'rgba(0,0,0,') + a.toFixed(2) + ')';
+      x.lineWidth = rnd() * 1.6;
+      var y = rnd() * 256;
+      x.beginPath(); x.moveTo(rnd() * 60, y); x.lineTo(60 + rnd() * 220, y + (rnd() - 0.5) * 2); x.stroke();
+    }
+    var t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(3, 2);
+    return t;
+  }
+
+  /* Оточення для відображень. Тут важлива не яскравість, а КОНТРАСТ:
+     плавний градієнт дає рівне відображення, і метал читається як пластик.
+     Метал упізнається за тим, що по ньому їдуть світлі смуги на темному —
+     тому це темна студія з кількома різкими софтбоксами. */
+  function envTexture(THREE) {
+    var c = cv(512, 256), x = c.getContext('2d');
+
+    var g = x.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0, '#8e939c');   // стеля
+    g.addColorStop(0.44, '#4a4e56');
+    g.addColorStop(0.54, '#26282d');
+    g.addColorStop(1, '#0e0f12');   // підлога
+    x.fillStyle = g; x.fillRect(0, 0, 512, 256);
+
+    function strip(cx, cy, w, h, col) {
+      var s = x.createLinearGradient(cx - w / 2, cy, cx + w / 2, cy);
+      s.addColorStop(0, 'rgba(0,0,0,0)');
+      s.addColorStop(0.5, col);
+      s.addColorStop(1, 'rgba(0,0,0,0)');
+      x.fillStyle = s;
+      x.fillRect(cx - w / 2, cy - h / 2, w, h);
+    }
+
+    strip(120, 44, 250, 34, 'rgba(255,255,255,1)');      // головний софтбокс
+    strip(310, 26, 190, 20, 'rgba(236,242,255,0.95)');   // холодний згори
+    strip(415, 98, 200, 26, 'rgba(255,196,138,0.9)');    // теплий збоку
+    strip(30,  126, 150, 14, 'rgba(196,214,240,0.6)');   // слабкий контровий
+
+    var t = new THREE.CanvasTexture(c);
+    t.mapping = THREE.EquirectangularReflectionMapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+
+  /* --- 8. Сцена --------------------------------------------------------- */
   function noThree() {
     root.classList.add('no3d');
     three = null;
@@ -285,63 +512,89 @@
       var gl = c.getContext('webgl2') || c.getContext('webgl');
       if (!gl) return false;
       var lose = gl.getExtension('WEBGL_lose_context');
-      if (lose) lose.loseContext();   // не займаємо один із небагатьох контекстів
+      if (lose) lose.loseContext();
       return true;
     } catch (e) { return false; }
   }
 
-  function build(THREE) {
+  function build(THREE, renderer) {
     var scene = new THREE.Scene();
     var camera = new THREE.PerspectiveCamera(42, 1, 0.6, 60);
 
-    scene.add(new THREE.HemisphereLight(0xE7E4DC, 0x241C33, 1.05));
-    var key = new THREE.DirectionalLight(0xFFF4EA, 1.5); key.position.set(3.4, 6.2, 4.2);
-    var rim = new THREE.DirectionalLight(0xC9773F, 0.55);  rim.position.set(-4.2, -1.4, -3.4);
-    scene.add(key, rim);
+    var pmrem = new THREE.PMREMGenerator(renderer);
+    var envTex = envTexture(THREE);
+    scene.environment = pmrem.fromEquirectangular(envTex).texture;
+    envTex.dispose();
+    pmrem.dispose();
 
-    var off = { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 };
-    function lam(c) { var m = new THREE.MeshLambertMaterial({ color: c }); Object.assign(m, off); return m; }
-    var matAlu   = lam(0xC3C6C0);
-    var matAluIn = lam(0x8E938F);
-    var matBoard = lam(0x3E2A5C);
-    var matDark  = lam(0x22242A);
-    var matSilk  = lam(0xE7E4DC);
-    var matBezel = lam(0x14171B);
-    var matGlass = new THREE.MeshBasicMaterial({ color: 0x1B3440 });
-    var matCu    = new THREE.MeshPhongMaterial({ color: 0xB87333, shininess: 22, specular: 0x5A3418 });
-    Object.assign(matCu, off);
-    var matEdge  = new THREE.LineBasicMaterial({ color: 0xE7E4DC, transparent: true, opacity: 0.32 });
+    var hemi = new THREE.HemisphereLight(0xE7E4DC, 0x241C33, 0.6);
+    var key  = new THREE.DirectionalLight(0xFFF6EC, 1.8); key.position.set(3.4, 6.2, 4.2);
+    var rim  = new THREE.DirectionalLight(0xC9773F, 0.7);  rim.position.set(-4.2, -1.2, -3.6);
+    scene.add(hemi, key, rim);
 
-    function box(w, h, d, mat, x, y, z) {
-      var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    var brush = brushTexture(THREE);
+
+    function std(o) { return new THREE.MeshStandardMaterial(o); }
+    /* Металічність навмисне не 1,0: на схемі деталь має лишатися читабельною
+       навіть там, де їй нема чого відбивати. Трохи дифузного кольору — і
+       алюміній не провалюється в чорноту, коли повертається до темної стіни. */
+    var matAlu   = std({ color: 0xAEB3AE, metalness: 0.72, roughness: 0.31, roughnessMap: brush, envMapIntensity: 1.35 });
+    var matAluIn = std({ color: 0x7D827E, metalness: 0.62, roughness: 0.50, roughnessMap: brush, envMapIntensity: 1.1 });
+    var matCu    = std({ color: 0xC0703A, metalness: 0.82, roughness: 0.26, envMapIntensity: 1.45 });
+    var matCuDim = std({ color: 0xA55C2C, metalness: 0.82, roughness: 0.42, envMapIntensity: 1.2 });
+    var matDark  = std({ color: 0x1E2024, metalness: 0.18, roughness: 0.62 });
+    var matKey   = std({ color: 0x24272B, metalness: 0.1,  roughness: 0.55 });
+    var matBoard = std({ color: 0xFFFFFF, metalness: 0.05, roughness: 0.55, map: boardTexture(THREE) });
+    var matLabel = std({ color: 0xFFFFFF, metalness: 0.0,  roughness: 0.9, map: labelTexture(THREE) });
+    var matGlass = std({
+      color: 0x0E1518, metalness: 0.0, roughness: 0.72,
+      emissive: 0xFFFFFF, emissiveIntensity: 0.85, emissiveMap: screenTexture(THREE)
+    });
+
+    /* Коробка з фаскою по всіх ребрах. Саме фаска ловить світло вузькою
+       смужкою — це те, за чим око впізнає фрезероване з металу. */
+    function chamferGeo(w, h, d, c) {
+      var sh = new THREE.Shape();
+      var hw = w / 2 - c, hd = d / 2 - c;
+      sh.moveTo(-hw, -hd); sh.lineTo(hw, -hd); sh.lineTo(hw, hd); sh.lineTo(-hw, hd); sh.closePath();
+      var g = new THREE.ExtrudeGeometry(sh, {
+        depth: Math.max(0.001, h - 2 * c), bevelEnabled: true,
+        bevelSize: c, bevelThickness: c, bevelSegments: 1, curveSegments: 1, steps: 1
+      });
+      g.rotateX(-Math.PI / 2);
+      g.translate(0, -h / 2 + c, 0);
+      return g;
+    }
+
+    function part(w, h, d, mat, x, y, z, c) {
+      var m = new THREE.Mesh(chamferGeo(w, h, d, c === undefined ? Math.min(0.012, h * 0.3) : c), mat);
       m.position.set(x || 0, y || 0, z || 0);
       return m;
     }
-    function outline(mesh) {
-      return new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), matEdge)
-        .translateX(mesh.position.x).translateY(mesh.position.y).translateZ(mesh.position.z);
+
+    function plainPart(w, h, d, mat, x, y, z) {
+      var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      m.position.set(x || 0, y || 0, z || 0);
+      return m;
     }
 
     var groups = [], anchors = [];
     for (var i = 0; i < 6; i++) { var g = new THREE.Group(); groups.push(g); scene.add(g); }
 
-    /* 01 екран: рамка + скло, займає верхню половину лицевої панелі */
-    var frame = box(3.86, 0.030, 1.00, matAlu, 0, 0, -0.52);
+    /* 01 екран */
     groups[0].add(
-      frame, outline(frame),
-      box(3.34, 0.014, 0.76, matBezel, 0, 0.020, -0.52),
-      box(3.22, 0.008, 0.66, matGlass, 0, 0.028, -0.52)
+      part(3.86, 0.030, 1.00, matAlu, 0, 0, -0.52),
+      part(3.34, 0.014, 0.76, matDark, 0, 0.020, -0.52, 0.004),
+      plainPart(3.20, 0.006, 0.64, matGlass, 0, 0.030, -0.52)
     );
 
-    /* 02 клавіатура: плита + 62 клавіші */
-    var kplate = box(3.86, 0.028, 1.02, matAluIn, 0, 0, 0.52);
-    groups[1].add(kplate, outline(kplate));
-    var keyGeo = new THREE.BoxGeometry(0.235, 0.060, 0.150);
-    var keys = new THREE.InstancedMesh(keyGeo, matDark, 62);
+    /* 02 клавіатура */
+    groups[1].add(part(3.86, 0.028, 1.02, matAluIn, 0, 0, 0.52));
+    var keys = new THREE.InstancedMesh(chamferGeo(0.235, 0.060, 0.150, 0.016), matKey, 62);
     var dummy = new THREE.Object3D(), n = 0;
     for (var r = 0; r < 5 && n < 62; r++) {
-      for (var c = 0; c < 13 && n < 62; c++) {
-        dummy.position.set(-1.72 + c * 0.2867, 0.044, 0.17 + r * 0.190);
+      for (var c2 = 0; c2 < 13 && n < 62; c2++) {
+        dummy.position.set(-1.72 + c2 * 0.2867, 0.044, 0.17 + r * 0.190);
         dummy.updateMatrix();
         keys.setMatrixAt(n++, dummy.matrix);
       }
@@ -349,68 +602,57 @@
     keys.instanceMatrix.needsUpdate = true;
     groups[1].add(keys);
 
-    /* 03 плата: текстоліт, мікросхеми, гребінка GPIO */
-    var board = box(3.78, 0.028, 2.00, matBoard);
+    /* 03 плата */
     groups[2].add(
-      board, outline(board),
-      box(0.62, 0.050, 0.62, matDark, -0.90, 0.039, -0.20),
-      box(0.40, 0.035, 0.75, matDark,  0.60, 0.032,  0.10),
-      box(0.30, 0.030, 0.30, matDark,  1.30, 0.029, -0.50),
-      box(0.35, 0.060, 0.16, matCu,    1.55, 0.044,  0.85)
+      part(3.78, 0.028, 2.00, matBoard, 0, 0, 0, 0.006),
+      part(0.62, 0.050, 0.62, matDark, -0.90, 0.039, -0.20, 0.008),
+      part(0.40, 0.035, 0.75, matDark,  0.60, 0.032,  0.10, 0.008),
+      part(0.30, 0.030, 0.30, matDark,  1.30, 0.029, -0.50, 0.006),
+      part(0.35, 0.060, 0.16, matCuDim, 1.55, 0.044,  0.85, 0.008)
     );
-    var pinGeo = new THREE.BoxGeometry(0.030, 0.075, 0.030);
-    var pins = new THREE.InstancedMesh(pinGeo, matCu, 20);
-    for (var p = 0; p < 20; p++) {
-      dummy.position.set(-1.00 + p * 0.105, 0.050, 0.92);
+    var pins = new THREE.InstancedMesh(new THREE.BoxGeometry(0.030, 0.075, 0.030), matCu, 20);
+    for (var p2 = 0; p2 < 20; p2++) {
+      dummy.position.set(-1.00 + p2 * 0.105, 0.050, 0.92);
       dummy.updateMatrix();
-      pins.setMatrixAt(p, dummy.matrix);
+      pins.setMatrixAt(p2, dummy.matrix);
     }
     pins.instanceMatrix.needsUpdate = true;
     groups[2].add(pins);
 
     /* 04 акумулятор */
-    var batt = box(3.10, 0.155, 1.72, matDark);
     groups[3].add(
-      batt, outline(batt),
-      box(1.50, 0.004, 0.50, matSilk, -0.30, 0.080, 0.10),
-      box(0.12, 0.040, 0.16, matCu, -1.50, 0.040, -0.30),
-      box(0.12, 0.040, 0.16, matCu, -1.50, 0.040,  0.30)
+      part(3.10, 0.155, 1.72, matDark, 0, 0, 0, 0.018),
+      plainPart(1.42, 0.003, 0.50, matLabel, -0.30, 0.079, 0.10),
+      part(0.12, 0.040, 0.16, matCu, -1.50, 0.040, -0.30, 0.008),
+      part(0.12, 0.040, 0.16, matCu, -1.50, 0.040,  0.30, 0.008)
     );
 
-    /* 05 радіатор: мідна пластина + ребра */
-    var plate = box(3.70, 0.045, 1.95, matCu, 0, 0.020, 0);
-    groups[4].add(plate, outline(plate));
-    var finGeo = new THREE.BoxGeometry(0.035, 0.090, 1.60);
-    var fins = new THREE.InstancedMesh(finGeo, matCu, 11);
-    for (var f = 0; f < 11; f++) {
-      dummy.position.set(-1.60 + f * 0.32, -0.045, 0);
+    /* 05 радіатор */
+    groups[4].add(part(3.70, 0.045, 1.95, matCu, 0, -0.010, 0, 0.010));
+    var fins = new THREE.InstancedMesh(chamferGeo(0.045, 0.075, 1.62, 0.010), matCuDim, 15);
+    for (var f = 0; f < 15; f++) {
+      dummy.position.set(-1.61 + f * 0.23, 0.050, 0);
       dummy.updateMatrix();
       fins.setMatrixAt(f, dummy.matrix);
     }
     fins.instanceMatrix.needsUpdate = true;
     groups[4].add(fins);
 
-    /* 06 корпус: дно, чотири стінки, шість гвинтів */
-    var base = box(4.00, 0.050, 2.20, matAlu, 0, -0.205, 0);
+    /* 06 корпус */
     groups[5].add(
-      base, outline(base),
-      box(0.06, 0.42, 2.20, matAlu, -1.97, 0, 0),
-      box(0.06, 0.42, 2.20, matAlu,  1.97, 0, 0),
-      box(4.00, 0.42, 0.06, matAlu, 0, 0,  1.07),
-      box(4.00, 0.42, 0.06, matAlu, 0, 0, -1.07)
+      part(4.00, 0.050, 2.20, matAlu, 0, -0.205, 0, 0.014),
+      part(0.06, 0.42, 2.20, matAlu, -1.97, 0, 0, 0.012),
+      part(0.06, 0.42, 2.20, matAlu,  1.97, 0, 0, 0.012),
+      part(4.00, 0.42, 0.06, matAlu, 0, 0,  1.07, 0.012),
+      part(4.00, 0.42, 0.06, matAlu, 0, 0, -1.07, 0.012)
     );
-    var scGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.022, 10);
-    var sc = new THREE.InstancedMesh(scGeo, matCu, 6);
-    var sp = [[-1.85, 0.92], [-1.85, 0], [-1.85, -0.92], [1.85, 0.92], [1.85, 0], [1.85, -0.92]];
-    for (var s = 0; s < 6; s++) {
-      dummy.position.set(sp[s][0], 0.20, sp[s][1]);
-      dummy.updateMatrix();
-      sc.setMatrixAt(s, dummy.matrix);
-    }
-    sc.instanceMatrix.needsUpdate = true;
-    groups[5].add(sc);
 
-    /* точки, у які влучає виноска — по одній на шар, на ближньому правому краї */
+    // шість гвинтів — вони ж перший такт анімації
+    var scGeo = new THREE.CylinderGeometry(0.058, 0.052, 0.026, 12);
+    var caseScrews = new THREE.InstancedMesh(scGeo, matCuDim, 6);
+    var screwPos = [[-1.85, 0.92], [-1.85, 0], [-1.85, -0.92], [1.85, 0.92], [1.85, 0], [1.85, -0.92]];
+    groups[5].add(caseScrews);
+
     var ap = [
       [1.86, 0.03, -0.85], [1.86, 0.03, 0.85], [1.82, 0.04, 0.85],
       [1.48, 0.09, 0.80], [1.78, 0.05, 0.90], [1.94, 0.20, 1.02]
@@ -422,34 +664,55 @@
       anchors.push(o);
     }
 
-    return { scene: scene, camera: camera, groups: groups, anchors: anchors, vec: new THREE.Vector3() };
+    return {
+      scene: scene, camera: camera, groups: groups, anchors: anchors,
+      mats: [matAlu, matAluIn, matCu, matCuDim],
+      hemi: hemi, key: key, rim: rim,
+      caseScrews: caseScrews, screwPos: screwPos, dummy: dummy,
+      vec: new THREE.Vector3()
+    };
   }
 
-  function applyThree(p) {
-    var i, L, u, y, lo = 1e9, hi = -1e9;
+  function applyThree(p, collapse) {
+    var i, L, lo = 1e9, hi = -1e9;
+
     for (i = 0; i < 6; i++) {
-      L = LAYERS[i]; u = us[i];
-      y = L.seat + u * L.travel * spread;
-      three.groups[i].position.set(u * L.dx, y, u * L.dz);
-      three.groups[i].rotation.set(u * L.rx, 0, u * L.rz);
-      if (y - L.half < lo) lo = y - L.half;
-      if (y + L.half > hi) hi = y + L.half;
+      L = LAYERS[i];
+      three.groups[i].position.set(us[i] * L.dx, ys[i], us[i] * L.dz);
+      three.groups[i].rotation.set(us[i] * L.rx, 0, us[i] * L.rz);
+      if (ys[i] - L.half < lo) lo = ys[i] - L.half;
+      if (ys[i] + L.half > hi) hi = ys[i] + L.half;
     }
 
-    // Кадр рахується щоразу під реальний розмір стосу, а не за наперед
-    // підібраними числами: тоді ніщо не вилазить ні на 16:9, ні на 360px,
-    // ні при масштабі 200 %.
+    // Гвинти: викручуються на самому початку і вкручуються назад у фіналі.
+    var sf = win(SCREW_A, SCREW_B, p) * (1 - collapse);
+    var d = three.dummy, sp = three.screwPos;
+    for (i = 0; i < 6; i++) {
+      var lag = clamp((sf - i * 0.06) / 0.7, 0, 1);
+      var e = easeOut(lag, 2);
+      d.position.set(sp[i][0], 0.20 + e * 0.40, sp[i][1]);
+      d.rotation.set(0, e * 9.2, 0);
+      var s = 1 - smoothstep(0.72, 1, e);
+      d.scale.set(s, s, s);
+      d.updateMatrix();
+      three.caseScrews.setMatrixAt(i, d.matrix);
+    }
+    d.scale.set(1, 1, 1);
+    d.rotation.set(0, 0, 0);
+    three.caseScrews.instanceMatrix.needsUpdate = true;
+
     var cam = three.camera;
     var cy = (lo + hi) / 2;
-    var halfH = (hi - lo) / 2 + 0.30;
-    var tv = Math.tan(21 * Math.PI / 180);
-    var aspect = Math.max(0.35, visW / visH);
-    var dist = Math.max(halfH / tv, 2.42 / (tv * aspect), 3.2) * 1.12;
     // Кут підйому майже сталий: разом зі зростанням відстані це дає рівно те,
     // що просив бриф — камера піднімається, відводиться, і стос видно збоку,
-    // а не згори. Опускати кут нижче ~24° не можна: тоді верхні шари
-    // опиняються над камерою і читаються як смужки.
+    // а не згори. Нижче ~24° верхні шари опиняються над камерою.
     var el = (28 - 3.5 * p) * Math.PI / 180;
+    // У кадр треба вмістити не лише висоту стосу: нахилена камера проєктує
+    // ще й глибину пристрою у вертикаль, інакше нижня деталь зрізається.
+    var halfH = (hi - lo) / 2 + 1.15 * Math.sin(el) + 0.22;
+    var tv = Math.tan(21 * Math.PI / 180);
+    var aspect = Math.max(0.35, visW / visH);
+    var dist = Math.max(halfH / tv, 2.46 / (tv * aspect), 3.2) * 1.10;
     var az = 0.36 + (reduced ? 0 : Math.sin(performance.now() / 4200) * (0.14 - 0.09 * p));
     var ch = Math.cos(el) * dist;
     cam.position.set(Math.sin(az) * ch, cy + Math.sin(el) * dist, Math.cos(az) * ch);
@@ -461,12 +724,13 @@
 
     cam.updateMatrixWorld(true);
     three.scene.updateMatrixWorld(true);
+    var idx = lastIndex < 0 ? 0 : lastIndex;
     var v = three.vec;
-    three.anchors[lastIndex < 0 ? 0 : lastIndex].getWorldPosition(v);
+    three.anchors[idx].getWorldPosition(v);
     v.project(cam);
 
     var onScreen = v.z <= 1 && Math.abs(v.x) < 0.98 && Math.abs(v.y) < 0.98;
-    var op = onScreen ? smoothstep(0.05, 0.35, us[lastIndex < 0 ? 0 : lastIndex]) : 0;
+    var op = onScreen ? smoothstep(0.05, 0.35, us[idx]) * (1 - collapse) : 0;
     lead.style.opacity = op.toFixed(2);
     if (op <= 0) return;
 
@@ -484,19 +748,23 @@
 
     var renderer;
     try {
-      var dprCap = window.innerWidth < 768 ? 1.5 : 2;
-      var dpr = Math.min(window.devicePixelRatio || 1, dprCap);
+      dprCapNow = window.innerWidth < 768 ? 1.5 : 2;
+      var dpr = Math.min(window.devicePixelRatio || 1, dprCapNow);
       renderer = new THREE.WebGLRenderer({
         canvas: canvas, alpha: true, antialias: dpr <= 1.5, powerPreference: 'high-performance'
       });
       renderer.setPixelRatio(dpr);
       renderer.setClearAlpha(0);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
     } catch (e) { noThree(); return; }
 
-    var built = build(THREE);
+    var built = build(THREE, renderer);
     three = {
       renderer: renderer, scene: built.scene, camera: built.camera,
-      groups: built.groups, anchors: built.anchors, vec: built.vec
+      groups: built.groups, anchors: built.anchors, mats: built.mats,
+      hemi: built.hemi, key: built.key, rim: built.rim,
+      caseScrews: built.caseScrews, screwPos: built.screwPos, dummy: built.dummy,
+      vec: built.vec
     };
 
     canvas.addEventListener('webglcontextlost', function (e) {
@@ -506,12 +774,14 @@
     });
     canvas.addEventListener('webglcontextrestored', function () { if (running) wake(); });
 
+    onTheme();
     measure();
     dirty = true;
     if (running) wake();
   }
 
-  /* --- 7. Старт --------------------------------------------------------- */
+  /* --- 9. Старт --------------------------------------------------------- */
+  labelTheme();
   setActive(0);
   measure();
   wake();
@@ -519,7 +789,5 @@
   if (window.THREE) initThree();
   else window.addEventListener('three:ready', initThree, { once: true });
 
-  // Якщо модуль не виконався взагалі (старий браузер, заблокований CDN,
-  // відкрито без інтернету) — через 4 секунди вмикаємо плоску схему.
   setTimeout(function () { if (!three && !root.classList.contains('no3d')) noThree(); }, 4000);
 })();

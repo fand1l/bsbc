@@ -42,6 +42,43 @@
   --hdr: 56px;
   --pad: clamp(16px, 4vw, 40px);
   --wrap: 1180px;
+
+  /* Смуги індикатора фокуса — не залежать від теми, бо мають лишатися
+     видимими на будь-якій поверхні. */
+  --fx-dark: #14181A;
+  --fx-light: #E7E4DC;
+}
+
+/* --- 1a. Темна тема ------------------------------------------------------
+   Не «те саме, але темніше»: світлі секції стають анодованим графітом, темні
+   лишаються паяльною маскою. Пара «метал зовні / плата всередині» вціліла,
+   просто при нічному світлі. Мідь — той самий акцент в обох темах. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --case:      #1B1E20;
+    --ink:       #E6E8E4;
+    --muted:     #A3ABA7;
+    --edge:      #646C6E;
+
+    --mask:      #1E1730;
+    --mask-deep: #161022;
+    --edge-dark: #6E667C;
+
+    --copper-ink: #C9773F;
+  }
+}
+
+:root[data-theme="dark"] {
+  --case:      #1B1E20;
+  --ink:       #E6E8E4;
+  --muted:     #A3ABA7;
+  --edge:      #646C6E;
+
+  --mask:      #1E1730;
+  --mask-deep: #161022;
+  --edge-dark: #6E667C;
+
+  --copper-ink: #C9773F;
 }
 
 /* --- 2. Reset ----------------------------------------------------------- */
@@ -68,10 +105,12 @@ body {
 
 a { color: inherit; }
 
+/* Три смуги: темна, світла, мідна. Сусідні пари різняться на 13:1, тому
+   індикатор лишається видимим і на графіті, і на масці, і в обох темах. */
 :where(a, button, input, [tabindex]):focus-visible {
-  outline: 2px solid var(--ink);
+  outline: 2px solid var(--fx-dark);
   outline-offset: 0;
-  box-shadow: 0 0 0 4px var(--case), 0 0 0 6px var(--copper);
+  box-shadow: 0 0 0 4px var(--fx-light), 0 0 0 6px var(--copper);
 }
 
 ::selection { background: var(--copper); color: var(--mask-deep); }
@@ -140,6 +179,23 @@ a { color: inherit; }
 
 .torx__head { fill: none; stroke: var(--edge); stroke-width: 1.4; }
 .torx__slot { fill: var(--copper-ink); }
+
+.hdr__acts { display: flex; align-items: center; gap: 8px; }
+
+.theme {
+  inline-size: 44px;
+  block-size: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.theme__mark { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.theme__half { fill: currentColor; stroke: none; }
 
 /* --- 6. Герой ----------------------------------------------------------- */
 .hero { padding-block-start: calc(var(--hdr) + clamp(40px, 9vw, 104px)); }
@@ -562,6 +618,14 @@ a { color: inherit; }
   .price { grid-template-columns: minmax(0, 1fr); }
 
   .tbl th { inline-size: auto; white-space: normal; }
+}
+
+/* Найвужчі екрани: у шапці тепер троє, тож стискаємо їх, а не переносимо */
+@media (max-width: 380px) {
+  .hdr { gap: 6px; }
+  .wordmark { font-size: 12px; letter-spacing: 0.1em; gap: 5px; }
+  .hdr__acts { gap: 4px; }
+  .btn--sm { padding-inline: 10px; font-size: 13px; }
 }
 
 /* Альбомний телефон: модель ліворуч, картка праворуч */
