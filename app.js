@@ -2039,6 +2039,10 @@
       (function step(now) {
         if (done) return;
         var u = clamp((now - t0) / dur, 0, 1);
+        // Нульовий кадр не пишеться. На швидкому пристрої це один кадр і його
+        // не видно, але на повільному між запуском і першим справжнім кадром
+        // минає півсекунди — і півсекунди ціна стоїть як «0 ₴».
+        if (u <= 0) { requestAnimationFrame(step); return; }
         if (u >= 1) { finish(); return; }
         el.textContent = fmt(Math.round(target * (1 - Math.pow(1 - u, 3)))) + tail;
         requestAnimationFrame(step);
