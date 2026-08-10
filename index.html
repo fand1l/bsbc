@@ -198,7 +198,28 @@
     </div>
   </section>
 
-  <!-- 4. Характеристики -->
+  <!-- 4. Порти -->
+  <section class="section section--light pt" id="ports" aria-labelledby="pt-h">
+    <h2 class="h2" id="pt-h">Порти</h2>
+
+    <p class="pt__lead">Три роз’єми на передньому торці. Жодного перехідника, щоб зарядити
+      чи вставити карту. Усередині, по краю плати, — гребінка <span lang="en">GPIO</span>
+      на 40 контактів: свою периферію підключаєш без паяння.</p>
+
+    <div class="pt__wrap" id="ptwrap">
+      <div class="pt__vis" aria-hidden="true"><canvas class="pt__cv" id="ptcv"></canvas></div>
+
+      <ul class="pt__labs">
+        <li class="pt__lab" data-i="0"><b lang="en">USB-C</b><span>зарядка і дані, <span lang="en">PD</span> 45 Вт</span></li>
+        <li class="pt__lab" data-i="1"><b lang="en">microSD</b><span>до 2 ТБ, гаряча заміна</span></li>
+        <li class="pt__lab" data-i="2"><b>3,5 мм</b><span>навушники з мікрофоном</span></li>
+      </ul>
+
+      <svg class="pt__wire" id="ptwire" aria-hidden="true" focusable="false"></svg>
+    </div>
+  </section>
+
+  <!-- 5. Характеристики -->
   <section class="section section--light" id="specs">
     <h2 class="h2">Характеристики</h2>
     <div class="tbl-wrap">

@@ -108,6 +108,7 @@
       three.hemi.intensity = dark ? 0.35 : 0.6;
     }
     if (kb) kb.renderer.toneMappingExposure = isDark() ? 0.95 : 1.15;
+    if (pt) pt.renderer.toneMappingExposure = isDark() ? 0.95 : 1.15;
     dirty = true;
     wake();
   }
@@ -145,6 +146,7 @@
       three.renderer.setSize(visW, visH, false);
     }
     if (kb) kb.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, fxOn ? 2 : 1));
+    if (pt) pt.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, fxOn ? 2 : 1));
     dirty = true;
     wake();
   }
@@ -1096,6 +1098,171 @@
     if (document.hidden) kbStop(); else if (kbSeen) kbStart();
   });
 
+  /* --- 8b. Третя сцена: порти -------------------------------------------
+     Той самий принцип, що й з клавіатурою: свій контекст, лінивий старт,
+     пауза поза екраном. Виноски тут горизонтальні — від підписів під кадром
+     угору до самих роз'ємів. */
+  var ptSec  = document.getElementById('ports');
+  var ptWrap = document.getElementById('ptwrap');
+  var ptCv   = document.getElementById('ptcv');
+  var ptWire = document.getElementById('ptwire');
+  var ptLabs = Array.prototype.slice.call(ptWrap.querySelectorAll('.pt__lab'));
+  var pt = null, ptRaf = 0, ptSeen = false, ptWireOn = false;
+  var ptLines = [], ptDots = [], ptAnchorXY = [];
+
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  for (var pl = 0; pl < 3; pl++) {
+    var ln = document.createElementNS(SVGNS, 'polyline');
+    var dt2 = document.createElementNS(SVGNS, 'circle');
+    dt2.setAttribute('r', '5');
+    ptWire.appendChild(ln); ptWire.appendChild(dt2);
+    ptLines.push(ln); ptDots.push(dt2);
+  }
+
+  function ptBuild(THREE) {
+    var renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas: ptCv, alpha: true, antialias: true });
+    } catch (e) { return null; }
+    renderer.setClearAlpha(0);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = isDark() ? 0.95 : 1.15;
+
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(30, 2.3, 0.05, 60);
+
+    var pmrem = new THREE.PMREMGenerator(renderer);
+    var et = envTexture(THREE);
+    scene.environment = pmrem.fromEquirectangular(et).texture;
+    et.dispose(); pmrem.dispose();
+
+    var kl = new THREE.DirectionalLight(0xFFF6EC, 1.5); kl.position.set(2.0, 3.0, 4.0);
+    var fl = new THREE.DirectionalLight(0xC9773F, 0.55); fl.position.set(-3.0, 0.4, -2.0);
+    scene.add(kl, fl, new THREE.HemisphereLight(0xE7E4DC, 0x241C33, 0.5));
+
+    var alu  = new THREE.MeshStandardMaterial({ color: 0xAEB3AE, metalness: 0.72, roughness: 0.31 });
+    var aluD = new THREE.MeshStandardMaterial({ color: 0x7D827E, metalness: 0.62, roughness: 0.5 });
+    var dark = new THREE.MeshStandardMaterial({ color: 0x16181B, metalness: 0.2, roughness: 0.6 });
+    var cu   = new THREE.MeshStandardMaterial({ color: 0xC0703A, metalness: 0.82, roughness: 0.3 });
+
+    var dev = new THREE.Group();
+    scene.add(dev);
+    function add(w, h, d, m, x, y, z, c) {
+      var me = new THREE.Mesh(chamfer(THREE, w, h, d, c === undefined ? 0.012 : c), m);
+      me.position.set(x, y, z);
+      dev.add(me);
+      return me;
+    }
+    // зібраний пристрій: дно, бокові стінки, задня, лицева панель
+    add(4.00, 0.050, 2.20, alu, 0, -0.205, 0, 0.014);
+    add(0.06, 0.42, 2.20, alu, -1.97, 0, 0);
+    add(0.06, 0.42, 2.20, alu,  1.97, 0, 0);
+    add(4.00, 0.42, 0.06, alu, 0, 0, -1.07);
+    add(3.86, 0.032, 2.04, aluD, 0, 0.205, 0, 0.010);
+    add(3.30, 0.010, 0.70, dark, 0, 0.224, -0.52, 0.004);
+    // передній торець із прорізами
+    add(0.88, 0.42, 0.06, alu, -1.56, 0, 1.07);
+    add(0.68, 0.42, 0.06, alu, -0.44, 0, 1.07);
+    add(0.77, 0.42, 0.06, alu,  0.485, 0, 1.07);
+    add(0.97, 0.42, 0.06, alu,  1.515, 0, 1.07);
+    // самі роз'єми
+    add(0.32, 0.105, 0.10, dark, -0.95, 0, 1.050, 0.012);
+    add(0.24, 0.030, 0.06, cu,  -0.95, 0, 1.040, 0.006);
+    add(0.20, 0.055, 0.09, dark,  0.00, 0, 1.050, 0.010);
+    add(0.15, 0.130, 0.09, dark,  0.95, 0, 1.050, 0.020);
+
+    var anchors = [];
+    var apos = [[-0.95, 0.02, 1.13], [0, 0.02, 1.13], [0.95, 0.02, 1.13]];
+    for (var i = 0; i < 3; i++) {
+      var o = new THREE.Object3D();
+      o.position.set(apos[i][0], apos[i][1], apos[i][2]);
+      dev.add(o);
+      anchors.push(o);
+    }
+
+    return { renderer: renderer, scene: scene, camera: camera, dev: dev, anchors: anchors, v: new THREE.Vector3() };
+  }
+
+  function ptMeasure() {
+    ptWireOn = getComputedStyle(ptWire).display !== 'none';
+    var wr = ptWrap.getBoundingClientRect();
+    var vr = ptCv.getBoundingClientRect();
+    ptAnchorXY = ptLabs.map(function (el) {
+      var r = el.getBoundingClientRect();
+      return { x: r.left - wr.left + r.width / 2, y: r.top - wr.top - 2 };
+    });
+    pt && (pt.visOX = vr.left - wr.left, pt.visOY = vr.top - wr.top);
+  }
+
+  function ptFrame() {
+    ptRaf = requestAnimationFrame(ptFrame);
+    if (!pt) return;
+
+    var r = ptSec.getBoundingClientRect();
+    var vh = window.innerHeight || 800;
+    var q = clamp((vh - r.top) / (vh + r.height), 0, 1);
+
+    var w = Math.max(1, Math.round(ptCv.clientWidth));
+    var h = Math.max(1, Math.round(ptCv.clientHeight));
+    if (ptCv.width !== Math.round(w * pt.renderer.getPixelRatio())) {
+      pt.renderer.setSize(w, h, false);
+      pt.camera.aspect = w / h;
+      pt.camera.updateProjectionMatrix();
+      ptMeasure();
+    }
+
+    pt.dev.rotation.y = (reduced ? 0.14 : -0.16 + q * 0.36);
+    var dist = w / h < 1.5 ? 5.9 : 4.7;
+    pt.camera.position.set(0, 0.50 + q * 0.10, dist);
+    pt.camera.lookAt(0, -0.03, 0.72);
+
+    pt.renderer.render(pt.scene, pt.camera);
+
+    if (!ptWireOn) return;
+    pt.camera.updateMatrixWorld(true);
+    pt.scene.updateMatrixWorld(true);
+    for (var i = 0; i < 3; i++) {
+      pt.anchors[i].getWorldPosition(pt.v);
+      pt.v.project(pt.camera);
+      var vis3 = pt.v.z <= 1 && Math.abs(pt.v.x) < 0.99 && Math.abs(pt.v.y) < 0.99;
+      ptLines[i].style.opacity = ptDots[i].style.opacity = vis3 ? '1' : '0';
+      if (!vis3) continue;
+      var x = pt.visOX + (pt.v.x * 0.5 + 0.5) * w;
+      var y = pt.visOY + (-pt.v.y * 0.5 + 0.5) * h;
+      var a = ptAnchorXY[i] || { x: x, y: y + 40 };
+      ptLines[i].setAttribute('points',
+        a.x + ',' + a.y + ' ' + a.x + ',' + (a.y - 18) + ' ' + x.toFixed(1) + ',' + y.toFixed(1));
+      ptDots[i].setAttribute('cx', x.toFixed(1));
+      ptDots[i].setAttribute('cy', y.toFixed(1));
+    }
+  }
+
+  function ptStart() {
+    if (!window.THREE || ptRaf) return;
+    if (!pt) {
+      pt = ptBuild(window.THREE);
+      if (!pt) return;
+      pt.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, fxOn ? 2 : 1));
+      ptMeasure();
+    }
+    ptRaf = requestAnimationFrame(ptFrame);
+  }
+
+  function ptStop() { if (ptRaf) { cancelAnimationFrame(ptRaf); ptRaf = 0; } }
+
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (es) {
+      ptSeen = es[0].isIntersecting;
+      if (ptSeen && !document.hidden) ptStart(); else ptStop();
+    }, { rootMargin: '200px' }).observe(ptSec);
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) ptStop(); else if (ptSeen) ptStart();
+  });
+
+  window.addEventListener('resize', ptMeasure);
+
   /* --- 9. Старт --------------------------------------------------------- */
   labelTheme();
   applyFx();
@@ -1103,8 +1270,9 @@
   measure();
   wake();
 
-  if (window.THREE) { initThree(); if (kbSeen) kbStart(); }
-  else window.addEventListener('three:ready', function () { initThree(); if (kbSeen) kbStart(); }, { once: true });
+  function bootScenes() { initThree(); if (kbSeen) kbStart(); if (ptSeen) ptStart(); }
+  if (window.THREE) bootScenes();
+  else window.addEventListener('three:ready', bootScenes, { once: true });
 
   setTimeout(function () { if (!three && !root.classList.contains('no3d')) noThree(); }, 4000);
 })();

@@ -555,6 +555,69 @@ a { color: inherit; }
 
 .kb__fact > dt { font-size: 13px; color: var(--silk-mute); }
 
+/* --- 11b. Порти --------------------------------------------------------- */
+.pt__lead { max-width: 60ch; font-size: clamp(17px, 1.9vw, 20px); line-height: 1.45; }
+
+.pt__wrap { position: relative; margin-block-start: clamp(24px, 4vw, 44px); }
+
+.pt__vis {
+  position: relative;
+  aspect-ratio: 21 / 9;
+  background: var(--mask);
+  border-radius: var(--r-in);
+  overflow: hidden;
+}
+
+.pt__cv { inline-size: 100%; block-size: 100%; }
+
+.pt__vis::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 110% at 50% 40%, transparent 60%, var(--mask) 100%);
+}
+
+.fx-off .pt__vis::after { display: none; }
+
+.pt__labs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(12px, 2vw, 28px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  margin-block-start: 74px;
+}
+
+.pt__lab {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-block-start: 12px;
+  border-block-start: 2px solid var(--copper-ink);
+}
+
+.pt__lab > b {
+  font: 500 clamp(15px, 1.7vw, 19px)/1.2 var(--font-data);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.pt__lab > span { font-size: 13px; line-height: 1.35; color: var(--muted); }
+
+.pt__wire {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  pointer-events: none;
+}
+
+.pt__wire line,
+.pt__wire polyline { fill: none; stroke: var(--copper-ink); stroke-width: 1.5; }
+.pt__wire circle { fill: none; stroke: var(--copper-ink); stroke-width: 1.5; }
+
 /* --- 12. Таблиця -------------------------------------------------------- */
 .tbl-wrap { overflow-x: auto; }
 
@@ -722,6 +785,9 @@ a { color: inherit; }
 /* Телефон */
 @media (max-width: 900px) {
   .kb__grid { grid-template-columns: minmax(0, 1fr); }
+  .pt__labs { grid-template-columns: minmax(0, 1fr); margin-block-start: 24px; }
+  .pt__wire { display: none; }
+  .pt__vis { aspect-ratio: 4 / 3; }
 }
 
 @media (max-width: 640px) {
