@@ -518,6 +518,20 @@
     return new THREE.CanvasTexture(c);
   }
 
+  // Шлейф: бурштиновий поліімід із мідними доріжками вздовж стрічки
+  function flexTexture(THREE) {
+    var c = cv(256, 64), x = c.getContext('2d');
+    x.fillStyle = '#9A6A2E'; x.fillRect(0, 0, 256, 64);
+    x.fillStyle = 'rgba(0,0,0,0.18)'; x.fillRect(0, 0, 256, 3); x.fillRect(0, 61, 256, 3);
+    for (var i = 0; i < 16; i++) {
+      x.fillStyle = i % 2 ? '#C98A4B' : '#B87333';
+      x.fillRect(6 + i * 15.2, 8, 7, 48);
+    }
+    var t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+
   // М'яке світіння над матрицею — дешевша заміна повного bloom
   function glowTexture(THREE) {
     var c = cv(128, 128), x = c.getContext('2d');
@@ -841,6 +855,42 @@
     glow.renderOrder = 2;
     groups[0].add(glow);
 
+    /* Шлейф, який не від'єднується. Стрічка тримається за плату й за екран
+       і перебудовується щокадру: 28 сегментів, індекси й буфер виділені раз,
+       у циклі змінюються тільки координати вершин.
+
+       Чесно про фізику: довжина стрічки тут не зберігається. Зберегти її
+       можна було б лише двома способами — або залишити екран недосяжним для
+       кабелю, або звалити позаду пристрою величезну петлю в третину його
+       довжини. Це технічна ілюстрація, а не симуляція, тож стрічка «витягується»,
+       але в кожен момент виглядає як згин гнучкого шлейфа, а не як гумка. */
+    var FLEX_SEG = 28;
+    var flexGeo = new THREE.BufferGeometry();
+    var flexPos = new Float32Array((FLEX_SEG + 1) * 2 * 3);
+    var flexUv = new Float32Array((FLEX_SEG + 1) * 2 * 2);
+    var flexIdx = [];
+    for (var fs = 0; fs < FLEX_SEG; fs++) {
+      var a0 = fs * 2, b0 = a0 + 1, a1 = a0 + 2, b1 = a0 + 3;
+      flexIdx.push(a0, b0, a1, b0, b1, a1);
+    }
+    for (var fu = 0; fu <= FLEX_SEG; fu++) {
+      flexUv[fu * 4 + 0] = fu / FLEX_SEG; flexUv[fu * 4 + 1] = 0;
+      flexUv[fu * 4 + 2] = fu / FLEX_SEG; flexUv[fu * 4 + 3] = 1;
+    }
+    flexGeo.setAttribute('position', new THREE.BufferAttribute(flexPos, 3));
+    flexGeo.setAttribute('uv', new THREE.BufferAttribute(flexUv, 2));
+    flexGeo.setIndex(flexIdx);
+    var flexMat = new THREE.MeshStandardMaterial({
+      map: flexTexture(THREE), side: THREE.DoubleSide, metalness: 0.15, roughness: 0.62
+    });
+    var flex = new THREE.Mesh(flexGeo, flexMat);
+    flex.frustumCulled = false;
+    scene.add(flex);
+
+    // роз'єми, у які він встромлений
+    groups[2].add(part(0.40, 0.045, 0.10, M2.dark, 0.85, 0.036, -0.86, 0.008));
+    groups[0].add(part(0.40, 0.030, 0.10, M0.dark, 0.85, -0.020, -0.80, 0.006));
+
     var ap = [
       [1.86, 0.03, -0.85], [1.86, 0.03, 0.85], [1.82, 0.04, 0.85],
       [1.48, 0.09, 0.80], [1.78, 0.05, 0.90], [1.94, 0.20, 1.02]
@@ -855,10 +905,58 @@
     return {
       scene: scene, camera: camera, groups: groups, anchors: anchors,
       mats: allMats, layerMats: layerMats, shadows: shadows, glow: glow,
+      flex: flex, flexGeo: flexGeo, flexPos: flexPos, flexSeg: FLEX_SEG,
       hemi: hemi, key: key, rim: rim,
       caseScrews: caseScrews, screwPos: screwPos, dummy: dummy,
       vec: new THREE.Vector3()
     };
+  }
+
+  /* Стрічка шлейфа. Кінці беруться з реальних світових позицій плати й екрана,
+     форма — кубічна крива Безьє: біля плати шлейф іде вгору, під екраном
+     входить знизу, і обидва рази трохи відхиляється назад. Керуючі точки
+     ростуть разом із відстанню, тому згин лишається схожим на згин, а не на
+     натягнуту струну. Ширина відкладається вздовж осі X, тож стрічка сама
+     закручується за нахилом кривої — окремо рахувати нормалі не потрібно. */
+  var FA = null, FB = null, FC = null, FD = null, FP = null, FT = null;
+
+  function updateFlex() {
+    var g0 = three.groups[0], g2 = three.groups[2];
+    if (!FA) {
+      var V = window.THREE.Vector3;
+      FA = new V(); FB = new V(); FC = new V(); FD = new V(); FP = new V(); FT = new V();
+    }
+    g0.updateMatrixWorld(true);
+    g2.updateMatrixWorld(true);
+    FA.set(0.85, 0.052, -0.86).applyMatrix4(g2.matrixWorld);   // роз'єм на платі
+    FD.set(0.85, -0.030, -0.80).applyMatrix4(g0.matrixWorld);  // роз'єм під екраном
+
+    var d = FA.distanceTo(FD);
+    /* Вигин прив'язаний до розходження, а не сталий: у зібраному стані обидва
+       роз'єми майже торкаються, і будь-який сталий доданок виштовхував би
+       стрічку назовні — вона визирала над екраном. */
+    var up = 0.22 * d, back = 0.10 + Math.min(0.30 * d, 0.95);
+    // невеликий зсув по X у різні боки дає стрічці природний перекрут,
+    // інакше вона лишається плоскою й читається як пряма смуга
+    FB.set(FA.x - 0.10, FA.y + up, FA.z - back);
+    FC.set(FD.x + 0.13, FD.y - up * 0.9, FD.z - back * 0.88);
+
+    var pos = three.flexPos, n = three.flexSeg, hw = 0.17;
+    for (var i = 0; i <= n; i++) {
+      var t = i / n, m = 1 - t;
+      var w0 = m * m * m, w1 = 3 * m * m * t, w2 = 3 * m * t * t, w3 = t * t * t;
+      FP.set(
+        w0 * FA.x + w1 * FB.x + w2 * FC.x + w3 * FD.x,
+        w0 * FA.y + w1 * FB.y + w2 * FC.y + w3 * FD.y,
+        w0 * FA.z + w1 * FB.z + w2 * FC.z + w3 * FD.z
+      );
+      var o = i * 6;
+      pos[o]     = FP.x - hw; pos[o + 1] = FP.y; pos[o + 2] = FP.z;
+      pos[o + 3] = FP.x + hw; pos[o + 4] = FP.y; pos[o + 5] = FP.z;
+    }
+    three.flexGeo.attributes.position.needsUpdate = true;
+    three.flexGeo.computeVertexNormals();
+    three.flexGeo.computeBoundingSphere();
   }
 
   function applyThree(p, collapse, dt, idx) {
@@ -890,6 +988,8 @@
     }
 
     if (three.glow.visible) three.glow.material.opacity = 0.22 + 0.5 * dims[0];
+
+    updateFlex();
 
     // М'яка тінь верхньої деталі на тій, що під нею: щільна, поки вони поруч,
     // і розмита та бліда, коли роз'їхалися.
@@ -992,6 +1092,7 @@
       renderer: renderer, scene: built.scene, camera: built.camera,
       groups: built.groups, anchors: built.anchors, mats: built.mats,
       layerMats: built.layerMats, shadows: built.shadows, glow: built.glow,
+      flex: built.flex, flexGeo: built.flexGeo, flexPos: built.flexPos, flexSeg: built.flexSeg,
       hemi: built.hemi, key: built.key, rim: built.rim,
       caseScrews: built.caseScrews, screwPos: built.screwPos, dummy: built.dummy,
       vec: built.vec
