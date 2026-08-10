@@ -42,6 +42,44 @@
   var COLLAPSE = 0.86;                    // далі складається назад
   var SMOOTH_K = 12;
 
+  /* --- Розкладка клавіатури ---------------------------------------------
+     Справжня розкладка, п'ять рядів, без цифрового блоку — рівно те, що
+     влазить у кишеньковий пристрій. Ширини в юнітах, як на будь-якій
+     механіці: 1u — літера, 2,25u — Enter, 6u — пробіл. Кожен ряд рівно
+     15u завширшки, інакше праві краї не збіглися б.
+
+     Другий підпис — українська розкладка на тій самій клавіші. Це не
+     прикраса: пристрій український, і ця пара літер на ковпачку каже про
+     нього більше, ніж абзац тексту. Ґ, Є, І, Ї у вибраному шрифті
+     перевірені розбором cmap, а не за словом «Cyrillic» у назві.
+
+     Останній ряд: замість правого Win/Menu — стрілки. На пристрої, де
+     екран у 4,3 дюйма, курсор нікуди не дінеться. */
+  var KROWS = [
+    [[1,'`','’'],[1,'1'],[1,'2'],[1,'3'],[1,'4'],[1,'5'],[1,'6'],[1,'7'],[1,'8'],[1,'9'],
+     [1,'0'],[1,'-'],[1,'='],[2,'@bsp']],
+    [[1.5,'Tab'],[1,'Q','Й'],[1,'W','Ц'],[1,'E','У'],[1,'R','К'],[1,'T','Е'],[1,'Y','Н'],
+     [1,'U','Г'],[1,'I','Ш'],[1,'O','Щ'],[1,'P','З'],[1,'[','Х'],[1,']','Ї'],[1.5,'\\','Ґ']],
+    [[1.75,'Caps'],[1,'A','Ф'],[1,'S','І'],[1,'D','В'],[1,'F','А'],[1,'G','П'],[1,'H','Р'],
+     [1,'J','О'],[1,'K','Л'],[1,'L','Д'],[1,';','Ж'],[1,'\'','Є'],[2.25,'Enter']],
+    [[2.25,'Shift'],[1,'Z','Я'],[1,'X','Ч'],[1,'C','С'],[1,'V','М'],[1,'B','И'],[1,'N','Т'],
+     [1,'M','Ь'],[1,',','Б'],[1,'.','Ю'],[1,'/','.'],[2.75,'Shift']],
+    [[1.25,'Ctrl'],[1.25,'Fn'],[1.25,'Alt'],[6,''],[1.25,'Alt'],
+     [1,'@lf'],[1,'@dn'],[1,'@up'],[1,'@rt']]
+  ];
+
+  var KB_U = 0.2367, KB_ROWZ = 0.172, KB_GAP = 0.024;
+  var KB_H = 0.060, KB_Y = 0.044, KB_LEGY = 0.0755, KB_PRESS = 0.030;
+  var KB_X0 = -1.775, KB_Z0 = -0.344;     // поле клавіш відцентроване в групі
+
+  /* «Кресало к1 Лінукс», набране по фізичних клавішах: українська розкладка
+     кладе к на R, р на H, е на T і так далі. Пальці через це стрибають по
+     клавіатурі так, як стрибають насправді, — а не бігають рядком зліва
+     направо, як бігали б, якби я взяв латинські літери. */
+  var KB_SCRIPT = ['Shift', 'R', 'H', 'T', 'C', 'F', 'K', 'J', 'Space', 'R', '1',
+                   'Space', 'Shift', 'K', 'S', 'Y', 'E', 'R', 'C'];
+  var KB_STEP = 0.135, KB_TAIL = 1.5;
+
   /* --- вузли ------------------------------------------------------------ */
   var track  = document.getElementById('track');
   var stage  = document.getElementById('stage');
@@ -750,6 +788,196 @@
     return g;
   }
 
+  /* Атлас підписів: 62 клітинки по 128 пікселів у сітці 8×8. Один малюнок
+     на всю клавіатуру — тому всі підписи коштують один виклик малювання.
+
+     Літери й цифри малюються шрифтом сторінки, стрілки й Backspace —
+     контурами: покладатися на те, що в шрифті знайдуться ⌫ і ⇧, не можна,
+     а намалювати трикутник — три рядки. Атлас перемальовується ще раз,
+     коли шрифти доїхали: інакше перший малюнок ліг би запасним моноширинним. */
+  var _atlas = null;
+  function keyAtlas(THREE) {
+    // Атлас один на обидві сцени: у них різні контексти WebGL, але three тримає
+    // прив'язку до контексту окремо від самої текстури, тож малювати вдруге
+    // й тримати другий мегабайтний canvas немає потреби.
+    if (_atlas) return _atlas;
+    var c = cv(1024, 1024);
+    var t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+
+    function tri(x, ax, ay, bx, by, cx2, cy2) {
+      x.beginPath(); x.moveTo(ax, ay); x.lineTo(bx, by); x.lineTo(cx2, cy2); x.closePath(); x.fill();
+    }
+
+    function draw() {
+      var x = c.getContext('2d');
+      x.clearRect(0, 0, 1024, 1024);
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      var n = 0;
+      for (var r = 0; r < KROWS.length; r++) {
+        for (var k = 0; k < KROWS[r].length; k++, n++) {
+          var key = KROWS[r][k], lat = key[1], cyr = key[2];
+          var col = n % 8, row = (n / 8) | 0;
+          var ox = col * 128, oy = row * 128, mx = ox + 64, my = oy + 64;
+          if (!lat) continue;
+
+          x.fillStyle = '#C6CBC6';
+          if (lat.charAt(0) === '@') {
+            var s = 20;
+            if (lat === '@up') tri(x, mx, my - s, mx + s, my + s * 0.7, mx - s, my + s * 0.7);
+            else if (lat === '@dn') tri(x, mx, my + s, mx + s, my - s * 0.7, mx - s, my - s * 0.7);
+            else if (lat === '@lf') tri(x, mx - s, my, mx + s * 0.7, my - s, mx + s * 0.7, my + s);
+            else if (lat === '@rt') tri(x, mx + s, my, mx - s * 0.7, my - s, mx - s * 0.7, my + s);
+            else if (lat === '@bsp') {
+              tri(x, mx - 34, my, mx - 6, my - 22, mx - 6, my + 22);
+              x.fillRect(mx - 8, my - 22, 42, 44);
+              x.strokeStyle = '#2A2E34'; x.lineWidth = 5; x.lineCap = 'round';
+              x.beginPath();
+              x.moveTo(mx + 2, my - 10); x.lineTo(mx + 22, my + 10);
+              x.moveTo(mx + 22, my - 10); x.lineTo(mx + 2, my + 10);
+              x.stroke();
+            }
+            continue;
+          }
+
+          // довгі підписи стискаються, поки не влізуть у клітинку
+          var px = lat.length > 1 ? 40 : 52;
+          do {
+            x.font = '500 ' + px + 'px "IBM Plex Mono", ui-monospace, monospace';
+            if (x.measureText(lat).width <= 104) break;
+            px -= 2;
+          } while (px > 14);
+
+          x.fillText(lat, cyr ? mx - 14 : mx, cyr ? my - 12 : my);
+
+          if (cyr) {
+            x.font = '500 34px "IBM Plex Mono", ui-monospace, monospace';
+            x.fillStyle = '#8F968F';
+            x.fillText(cyr, mx + 26, my + 28);
+          }
+        }
+      }
+      t.needsUpdate = true;
+    }
+
+    draw();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
+    _atlas = t;
+    return t;
+  }
+
+  /* Клавіатура як окрема група. Ковпачки згруповані за шириною: instancing
+     вимагає однакової геометрії, тож на вісім різних ширин виходить вісім
+     сіток — усе одно вісім викликів малювання, а не шістдесят два.
+
+     Підписи — навпаки, одна спільна геометрія на всі клавіші, у якої в
+     кожної клітинки свої UV. Через це підписи не можна класти в instancing
+     (там UV спільні на всі копії), зате натиснення оновлює лише висоту
+     чотирьох вершин на клавішу. */
+  function buildKeyboard(THREE, plateMat, capMat, legMat, plateW, plateD) {
+    var g = new THREE.Group();
+    g.add(new THREE.Mesh(chamfer(THREE, plateW, 0.028, plateD, 0.010), plateMat));
+
+    /* Заглиблення під полем клавіш. Без нього в зазори видно шліфований
+       алюміній пластини, і під косим світлом він дає ряд яскравих смуг —
+       клавіатура починає світитися зсередини. У зазорах має бути темно,
+       тому там лежить те саме, з чого зроблені ковпачки. */
+    var well = new THREE.Mesh(
+      new THREE.BoxGeometry(15 * KB_U + 0.024, 0.030, 5 * KB_ROWZ + 0.026), capMat);
+    well.position.set(0, 0.005, 0);
+    g.add(well);
+
+    var widths = [], i, r, k;
+    for (r = 0; r < KROWS.length; r++) {
+      for (k = 0; k < KROWS[r].length; k++) {
+        if (widths.indexOf(KROWS[r][k][0]) < 0) widths.push(KROWS[r][k][0]);
+      }
+    }
+    widths.sort(function (a, b) { return a - b; });
+
+    var counts = {}, keys = [];
+    for (r = 0; r < KROWS.length; r++) {
+      var cur = KB_X0;
+      for (k = 0; k < KROWS[r].length; k++) {
+        var w = KROWS[r][k][0], mi = widths.indexOf(w);
+        if (counts[w] === undefined) counts[w] = 0;
+        keys.push({
+          mi: mi, ii: counts[w]++, w: w, lab: KROWS[r][k][1] || 'Space',
+          x: cur + w * KB_U / 2, z: KB_Z0 + r * KB_ROWZ
+        });
+        cur += w * KB_U;
+      }
+    }
+
+    var caps = [], dummy = new THREE.Object3D();
+    for (i = 0; i < widths.length; i++) {
+      var cw = widths[i] * KB_U - KB_GAP;
+      var m = new THREE.InstancedMesh(
+        chamfer(THREE, cw, KB_H, KB_ROWZ - KB_GAP, 0.013), capMat, counts[widths[i]]);
+      caps.push(m);
+      g.add(m);
+    }
+
+    var N = keys.length;
+    var legPos = new Float32Array(N * 4 * 3);
+    var legUv  = new Float32Array(N * 4 * 2);
+    var legNor = new Float32Array(N * 4 * 3);
+    var legIdx = [];
+    var HL = 0.066;
+    for (i = 0; i < N; i++) {
+      var key = keys[i], p0 = i * 12, u0 = i * 8;
+      var xs = [key.x - HL, key.x + HL, key.x + HL, key.x - HL];
+      var zs = [key.z - HL, key.z - HL, key.z + HL, key.z + HL];
+      var cl = i % 8, rw = (i / 8) | 0;
+      // flipY у CanvasTexture увімкнено, тому рядки атласа рахуються знизу
+      var uA = cl / 8, uB = (cl + 1) / 8, vA = 1 - (rw + 1) / 8, vB = 1 - rw / 8;
+      var us2 = [uA, uB, uB, uA], vs2 = [vB, vB, vA, vA];
+      for (var v = 0; v < 4; v++) {
+        legPos[p0 + v * 3] = xs[v];
+        legPos[p0 + v * 3 + 1] = KB_LEGY;
+        legPos[p0 + v * 3 + 2] = zs[v];
+        legNor[p0 + v * 3 + 1] = 1;
+        legUv[u0 + v * 2] = us2[v];
+        legUv[u0 + v * 2 + 1] = vs2[v];
+      }
+      var b = i * 4;
+      legIdx.push(b, b + 2, b + 1, b, b + 3, b + 2);
+    }
+    var legGeo = new THREE.BufferGeometry();
+    legGeo.setAttribute('position', new THREE.BufferAttribute(legPos, 3));
+    legGeo.setAttribute('normal', new THREE.BufferAttribute(legNor, 3));
+    legGeo.setAttribute('uv', new THREE.BufferAttribute(legUv, 2));
+    legGeo.setIndex(legIdx);
+    var leg = new THREE.Mesh(legGeo, legMat);
+    leg.renderOrder = 1;
+    g.add(leg);
+
+    var byLabel = {};
+    for (i = 0; i < N; i++) if (byLabel[keys[i].lab] === undefined) byLabel[keys[i].lab] = i;
+
+    var o = { group: g, caps: caps, keys: keys, byLabel: byLabel,
+              legGeo: legGeo, legPos: legPos, dummy: dummy };
+    kbSetPress(o, null);
+    return o;
+  }
+
+  // Розкладка натиснень. amounts === null означає «усі відпущені».
+  function kbSetPress(o, amounts) {
+    var d = o.dummy, i;
+    for (i = 0; i < o.keys.length; i++) {
+      var k = o.keys[i], dy = amounts ? -amounts[i] * KB_PRESS : 0;
+      d.position.set(k.x, KB_Y + dy, k.z);
+      d.updateMatrix();
+      o.caps[k.mi].setMatrixAt(k.ii, d.matrix);
+      var p0 = i * 12;
+      for (var v = 0; v < 4; v++) o.legPos[p0 + v * 3 + 1] = KB_LEGY + dy;
+    }
+    for (i = 0; i < o.caps.length; i++) o.caps[i].instanceMatrix.needsUpdate = true;
+    o.legGeo.attributes.position.needsUpdate = true;
+  }
+
   /* --- 8. Сцена --------------------------------------------------------- */
   function noThree() {
     root.classList.add('no3d');
@@ -794,6 +1022,7 @@
     function std(o) { return new THREE.MeshStandardMaterial(o); }
 
     var texBoard = boardTexture(THREE), texLabel = labelTexture(THREE), texScreen = screenTexture(THREE);
+    var texKeys = keyAtlas(THREE);
 
     /* Металічність навмисне не 1,0: на схемі деталь має лишатися читабельною
        навіть там, де їй нема чого відбивати. Трохи дифузного кольору — і
@@ -812,6 +1041,8 @@
         keyc:  std({ color: 0x3A3E45, metalness: 0.16, roughness: 0.42, envMapIntensity: 1.2 }),
         board: std({ color: 0xFFFFFF, metalness: 0.06, roughness: 0.48, map: texBoard, envMapIntensity: 1.1 }),
         label: std({ color: 0xFFFFFF, metalness: 0.00, roughness: 0.85, map: texLabel }),
+        legend: std({ color: 0xFFFFFF, metalness: 0.00, roughness: 0.70, map: texKeys,
+                      transparent: true, depthWrite: false, envMapIntensity: 0.5 }),
         /* Блік на матриці більше не намальований у текстурі: скло має низьку
            шорсткість і високу силу відображень, тому ловить справжній софтбокс
            з оточення — і блік їде по екрану, коли модель повертається. */
@@ -825,7 +1056,14 @@
       var set = makeMats(), list = [];
       for (var kk in set) {
         var mm = set[kk];
-        list.push({ m: mm, c: mm.color.clone(), e: mm.envMapIntensity, ei: mm.emissiveIntensity });
+        /* Світіння матриці навмисно не притлумлюється разом із рештою: екран —
+           джерело світла, а не поверхня, і гаснути через те, що активний інший
+           шар, він не має. Заразом це тримає його вище порога виїмки, тож
+           ореол лишається на місці до останнього кадру. */
+        list.push({
+          m: mm, c: mm.color.clone(), e: mm.envMapIntensity,
+          ei: kk === 'glass' ? 0 : mm.emissiveIntensity
+        });
         allMats.push(mm);
       }
       sets.push(set);
@@ -858,19 +1096,12 @@
       plainPart(3.16, 0.006, 0.58, M0.glass, 0, 0.030, -0.4775)
     );
 
-    /* 02 клавіатура */
-    groups[1].add(part(PANEL_X * 2, 0.028, PANEL_Z, M1.aluIn, 0, 0, PANEL_C));
-    var keys = new THREE.InstancedMesh(chamferGeo(0.235, 0.060, 0.150, 0.016), M1.keyc, 62);
-    var dummy = new THREE.Object3D(), n = 0;
-    for (var r = 0; r < 5 && n < 62; r++) {
-      for (var c2 = 0; c2 < 13 && n < 62; c2++) {
-        dummy.position.set(-1.66 + c2 * 0.2767, 0.044, 0.15 + r * 0.175);
-        dummy.updateMatrix();
-        keys.setMatrixAt(n++, dummy.matrix);
-      }
-    }
-    keys.instanceMatrix.needsUpdate = true;
-    groups[1].add(keys);
+    /* 02 клавіатура — та сама розкладка, що й у секції зблизька: це один
+       і той самий пристрій, тож і клавіші мають збігатися до однієї. */
+    var kbMain = buildKeyboard(THREE, M1.aluIn, M1.keyc, M1.legend, PANEL_X * 2, PANEL_Z);
+    kbMain.group.position.set(0, 0, PANEL_C);
+    groups[1].add(kbMain.group);
+    var dummy = new THREE.Object3D();
 
     /* 03 плата */
     groups[2].add(
@@ -1196,10 +1427,14 @@
     cam.position.set(Math.sin(az) * ch, cy + Math.sin(el) * dist, Math.cos(az) * ch);
     cam.lookAt(0, cy, 0);
 
-    // активна деталь підходить трохи до камери — саме «трохи», щоб не збити кадр
+    /* Активна деталь підходить трохи до камери — саме «трохи», щоб не збити
+       кадр. Множник на (1 - collapse) обов'язковий: без нього наприкінці
+       доріжки, коли все вже зійшлося, активним лишався корпус — і він так
+       і стояв зсунутим на 0,18 відносно власного нутра. Пристрій складався
+       назад криво. */
     var fx = cam.position.x, fy = cam.position.y - cy, fz = cam.position.z;
     var fl = Math.sqrt(fx * fx + fy * fy + fz * fz) || 1;
-    var kf = 0.18 * clamp((dims[idx] - 0.4) / 0.6, 0, 1);
+    var kf = 0.18 * clamp((dims[idx] - 0.4) / 0.6, 0, 1) * (1 - collapse);
     three.groups[idx].position.x += fx / fl * kf;
     three.groups[idx].position.y += fy / fl * kf;
     three.groups[idx].position.z += fz / fl * kf;
@@ -1408,7 +1643,7 @@
       hemi: built.hemi, key: built.key, rim: built.rim, fill: built.fill,
       caseScrews: built.caseScrews, screwPos: built.screwPos, dummy: built.dummy,
       vec: built.vec,
-      post: makePost(THREE, renderer, { cut: 1.00, amount: 0.60 })
+      post: makePost(THREE, renderer, { cut: 1.15, amount: 0.60 })
     };
 
     var ctxLost = false;
@@ -1461,39 +1696,39 @@
 
     var key = new THREE.DirectionalLight(0xFFF6EC, 2.6); key.position.set(1.6, 2.4, 3.2);
     var fill = new THREE.DirectionalLight(0xBFD4E8, 0.9); fill.position.set(-2.6, 1.4, 1.2);
-    var rim = new THREE.DirectionalLight(0xC9773F, 0.8); rim.position.set(-1.2, 0.5, -2.6);
+    var rim = new THREE.DirectionalLight(0xC9773F, 0.5); rim.position.set(-1.2, 0.5, -2.6);
     scene.add(key, fill, rim, new THREE.HemisphereLight(0xE7E4DC, 0x2A2D33, 0.55));
 
     var matPlate = new THREE.MeshStandardMaterial({ color: 0x8C918D, metalness: 0.62, roughness: 0.42, envMapIntensity: 1.4 });
     var matKey   = new THREE.MeshStandardMaterial({ color: 0x3C4048, metalness: 0.16, roughness: 0.40, envMapIntensity: 1.3 });
-    scene.add(new THREE.Mesh(chamfer(THREE, 3.86, 0.028, 1.02, 0.012), matPlate));
+    var matLeg   = new THREE.MeshStandardMaterial({
+      color: 0xFFFFFF, metalness: 0.0, roughness: 0.70, map: keyAtlas(THREE),
+      transparent: true, depthWrite: false, envMapIntensity: 0.5
+    });
 
     /* Підсвітка світить із-під клавіш, і видно її саме в зазорах між ними.
        Колір узятий не з палітри «як є», а помножений: THREE.Color тримає
        звичайні числа з рухомою комою, тож 2,4 по червоному — це законне
        значення, більше за одиницю, яке постобробка й забирає в ореол. */
     var litMat = new THREE.MeshBasicMaterial({
-      map: glowTexture(THREE), transparent: true, depthWrite: false,
+      transparent: true, depthWrite: false,
       blending: THREE.AdditiveBlending, opacity: 0, toneMapped: false
     });
-    litMat.color.setRGB(2.35, 1.05, 0.42);
-    var lit = new THREE.Mesh(new THREE.PlaneGeometry(3.7, 0.95), litMat);
+    litMat.color.setRGB(5.5, 2.4, 0.95);
+    // рівно по полю клавіш і майже врівень із заглибленням: підсвітка має
+    // читатися смужкою біля основи ковпачків, а не стіною між ними
+    var lit = new THREE.Mesh(new THREE.PlaneGeometry(15 * KB_U - 0.034, 5 * KB_ROWZ - 0.034), litMat);
     lit.rotation.x = -Math.PI / 2;
-    lit.position.set(0, 0.020, 0.52);
+    lit.position.set(0, 0.023, 0.478);
     scene.add(lit);
 
-    var keys = new THREE.InstancedMesh(chamfer(THREE, 0.235, 0.060, 0.150, 0.016), matKey, 62);
-    var cols = [], d = new THREE.Object3D(), n = 0;
-    for (var r = 0; r < 5 && n < 62; r++) {
-      for (var c = 0; c < 13 && n < 62; c++) {
-        cols.push({ x: -1.72 + c * 0.2867, z: 0.17 + r * 0.190, c: c });
-        n++;
-      }
-    }
-    scene.add(keys);
+    var board = buildKeyboard(THREE, matPlate, matKey, matLeg, 3.71, 0.95);
+    board.group.position.set(0, 0, 0.478);
+    scene.add(board.group);
 
     return {
-      renderer: renderer, scene: scene, camera: camera, keys: keys, cols: cols, d: d, lit: lit,
+      renderer: renderer, scene: scene, camera: camera, board: board, lit: lit,
+      amp: new Float32Array(board.keys.length), idle: false,
       post: makePost(THREE, renderer, { cut: 0.90, amount: 1.05 })
     };
   }
@@ -1515,26 +1750,35 @@
     }
 
     // повільна панорама вздовж клавіатури, прив'язана до прокрутки секції
-    var cx = -1.15 + q * 1.7;
-    kb.camera.position.set(cx - 0.28, 0.78, 1.78);
-    kb.camera.lookAt(cx + 0.16, 0.02, 0.54);
+    var cx = -1.26 + q * 1.95;
+    kb.camera.position.set(cx - 0.22, 0.96, 1.46);
+    kb.camera.lookAt(cx + 0.10, 0.03, 0.478);
 
-    // хвиля натискань і підсвітка; під reduced-motion клавіші стоять
+    /* Клавіші натискаються поодинці, у порядку набору. Раніше тут була
+       синусоїда від номера колонки — і весь стовпець ішов униз разом,
+       чого на клавіатурі не буває ніколи. Тепер це справжня фраза,
+       набрана по фізичних клавішах української розкладки. */
     var t = reduced ? 0 : performance.now() / 1000;
-    for (var i = 0; i < kb.cols.length; i++) {
-      var k = kb.cols[i];
-      var press = reduced ? 0 : Math.max(0, Math.sin(t * 1.6 - k.c * 0.42)) ;
-      press = press > 0.78 ? (press - 0.78) / 0.22 : 0;
-      kb.d.position.set(k.x, 0.044 - press * 0.030, k.z);
-      kb.d.updateMatrix();
-      kb.keys.setMatrixAt(i, kb.d.matrix);
+    var amp = kb.amp, i, any = false;
+    for (i = 0; i < amp.length; i++) amp[i] = 0;
+
+    if (!reduced) {
+      var cycle = KB_SCRIPT.length * KB_STEP + KB_TAIL;
+      var tt = t % cycle;
+      for (i = 0; i < KB_SCRIPT.length; i++) {
+        var e = tt - i * KB_STEP;
+        if (e < 0 || e > 0.22) continue;
+        var a = e < 0.05 ? e / 0.05 : 1 - (e - 0.05) / 0.17;
+        var ki = kb.board.byLabel[KB_SCRIPT[i]];
+        if (a > 0 && ki !== undefined) { if (a > amp[ki]) amp[ki] = a; any = true; }
+      }
     }
-    kb.keys.instanceMatrix.needsUpdate = true;
-    kb.lit.material.opacity = fxOn ? 0.30 + 0.22 * Math.sin(t * 0.7) * Math.sin(t * 0.7) : 0;
+    if (any || !kb.idle) { kbSetPress(kb.board, amp); kb.idle = !any; }
+    kb.lit.material.opacity = fxOn ? 0.075 + 0.045 * Math.sin(t * 0.7) * Math.sin(t * 0.7) : 0;
     // без постобробки нікуди дівати значення понад одиницю: вони просто
     // зріжуться в помаранчеву пляму, тож там колір лишається звичайним
-    if (postOn) kb.lit.material.color.setRGB(2.35, 1.05, 0.42);
-    else kb.lit.material.color.setRGB(0.62, 0.28, 0.11);
+    if (postOn) kb.lit.material.color.setRGB(5.5, 2.4, 0.95);
+    else kb.lit.material.color.setRGB(1.9, 0.85, 0.34);
 
     if (postOn && kb.post.alive()) kb.post.render(kb.scene, kb.camera);
     else kb.renderer.render(kb.scene, kb.camera);
