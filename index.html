@@ -12,7 +12,15 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="style.css">
 
-<script>document.documentElement.className = 'js';</script>
+<script>
+  document.documentElement.className = 'js';
+  /* Тема застосовується до першого малювання, інакше на перезавантаженні
+     блимне світлим. Без збереженого вибору діє системна настройка. */
+  try {
+    var saved = localStorage.getItem('k1-theme');
+    if (saved === 'dark' || saved === 'light') document.documentElement.dataset.theme = saved;
+  } catch (e) { /* приватний режим — лишається системна тема */ }
+</script>
 
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js" } }
@@ -46,7 +54,16 @@
     </svg>
     <span>К1</span>
   </a>
-  <a class="btn btn--sm" href="#price">Передзамовити</a>
+
+  <div class="hdr__acts">
+    <button class="theme" id="theme" type="button" aria-label="Перемкнути тему">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+        <circle class="theme__mark" cx="12" cy="12" r="8"/>
+        <path class="theme__half" d="M12 4a8 8 0 0 0 0 16z"/>
+      </svg>
+    </button>
+    <a class="btn btn--sm" href="#price">Передзамовити</a>
+  </div>
 </header>
 
 <main id="main">
