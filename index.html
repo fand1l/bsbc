@@ -41,6 +41,11 @@
 <body>
 <a class="skip" href="#main">Перейти до вмісту</a>
 
+<div class="ruler" id="ruler" aria-hidden="true">
+  <span class="ruler__ticks"></span>
+  <span class="ruler__mark"></span>
+</div>
+
 <header class="hdr">
   <a class="wordmark" href="#main">
     <span>Кресало</span>
@@ -174,7 +179,52 @@
     </div>
   </section>
 
-  <!-- 3. Характеристики -->
+  <!-- 3. Клавіатура зблизька -->
+  <section class="section section--dark kb" id="keyboard" aria-labelledby="kb-h">
+    <h2 class="h2" id="kb-h">Клавіатура</h2>
+
+    <div class="kb__grid">
+      <div class="kb__vis" aria-hidden="true">
+        <canvas class="kb__cv" id="kbcv"></canvas>
+      </div>
+
+      <div class="kb__txt">
+        <p class="kb__lead">62 клавіші з механічними перемикачами. Хід 1,2 мм, тактильний злам
+          чути пальцем — тому друкуєш не дивлячись, і в рукавичках теж.</p>
+        <p>Розкладку можна перепрошити: файл лежить у тому самому репозиторії, що й схеми.
+          Підсвічування має чотири рівні й вимикається повністю.</p>
+
+        <dl class="kb__facts">
+          <div class="kb__fact"><dd>1,2 мм</dd><dt>хід клавіші</dt></div>
+          <div class="kb__fact"><dd>62</dd><dt>клавіші, з повним рядом цифр</dt></div>
+          <div class="kb__fact"><dd>4 рівні</dd><dt>підсвічування</dt></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Порти -->
+  <section class="section section--light pt" id="ports" aria-labelledby="pt-h">
+    <h2 class="h2" id="pt-h">Порти</h2>
+
+    <p class="pt__lead">Три роз’єми на передньому торці. Жодного перехідника, щоб зарядити
+      чи вставити карту. Усередині, по краю плати, — гребінка <span lang="en">GPIO</span>
+      на 40 контактів: свою периферію підключаєш без паяння.</p>
+
+    <div class="pt__wrap" id="ptwrap">
+      <div class="pt__vis" aria-hidden="true"><canvas class="pt__cv" id="ptcv"></canvas></div>
+
+      <ul class="pt__labs">
+        <li class="pt__lab" data-i="0"><b lang="en">USB-C</b><span>зарядка і дані, <span lang="en">PD</span> 45 Вт</span></li>
+        <li class="pt__lab" data-i="1"><b lang="en">microSD</b><span>до 2 ТБ, гаряча заміна</span></li>
+        <li class="pt__lab" data-i="2"><b>3,5 мм</b><span>навушники з мікрофоном</span></li>
+      </ul>
+
+      <svg class="pt__wire" id="ptwire" aria-hidden="true" focusable="false"></svg>
+    </div>
+  </section>
+
+  <!-- 5. Характеристики -->
   <section class="section section--light" id="specs">
     <h2 class="h2">Характеристики</h2>
     <div class="tbl-wrap">
@@ -204,7 +254,67 @@
     </div>
   </section>
 
-  <!-- 4. Ціна і передзамовлення -->
+  <!-- 6. Ремонт -->
+  <section class="section section--dark rp" id="repair" aria-labelledby="rp-h">
+    <h2 class="h2" id="rp-h">Ремонт</h2>
+
+    <p class="rp__lead">Усе, що зношується, продається окремо. Акумулятор міняється руками,
+      решта — шістьма гвинтами <span lang="en">Torx T6</span>, і ключ лежить у коробці.</p>
+    <p class="rp__note">Не міняється тільки пам’ять: вона розпаяна на платі. Накопичувач —
+      звичайний <span lang="en">M.2 2230</span>, ставиш будь-який.</p>
+
+    <div class="tbl-wrap">
+      <table class="tbl tbl--cols">
+        <caption class="vh">Запчастини, ціни й що потрібно для заміни</caption>
+        <thead>
+          <tr><th scope="col">Деталь</th><th scope="col">Ціна</th><th scope="col">Що потрібно</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Акумулятор</th><td>1 200 ₴</td><td>руками, 40 секунд</td></tr>
+          <tr><th scope="row">Клавіатура в зборі</th><td>2 400 ₴</td><td>6 гвинтів</td></tr>
+          <tr><th scope="row">Екран у зборі</th><td>4 900 ₴</td><td>6 гвинтів і шлейф</td></tr>
+          <tr><th scope="row">Радіатор</th><td>700 ₴</td><td>6 гвинтів</td></tr>
+          <tr><th scope="row">Корпус</th><td>3 100 ₴</td><td>повне розбирання</td></tr>
+          <tr><th scope="row">Плата</th><td>12 400 ₴</td><td>повне розбирання</td></tr>
+          <tr><th scope="row">Комплект гвинтів і ключ</th><td>90 ₴</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="rp__fine">Гарантія 24 місяці. Розбирання її не скасовує. Ціни вигадані, як і сам продукт.</p>
+  </section>
+
+  <!-- 7. Порівняння -->
+  <section class="section section--light cmp" id="compare" aria-labelledby="cmp-h">
+    <h2 class="h2" id="cmp-h">Порівняння</h2>
+
+    <p class="cmp__lead">Чесно: телефон легший і дешевший, ноутбук швидший. Кресало виграє
+      рівно там, де важить доступ до власного заліза.</p>
+
+    <div class="tbl-wrap">
+      <table class="tbl tbl--cols">
+        <caption class="vh">Кресало К1 проти смартфона й ноутбука</caption>
+        <thead>
+          <tr>
+            <th scope="col"><span class="vh">Показник</span></th>
+            <th scope="col">Кресало К1</th><th scope="col">Смартфон</th><th scope="col">Ноутбук</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Фізична клавіатура</th><td>так</td><td>ні</td><td>так</td></tr>
+          <tr><th scope="row">Вага</th><td>318 г</td><td>190 г</td><td>1,4 кг</td></tr>
+          <tr><th scope="row">Заміна акумулятора</th><td>руками, 40 с</td><td>сервіс, клей</td><td>гвинти, 10 хв</td></tr>
+          <tr><th scope="row">Повний доступ до системи</th><td>так</td><td>ні</td><td>так</td></tr>
+          <tr><th scope="row">Схеми опубліковані</th><td>так</td><td>ні</td><td>ні</td></tr>
+          <tr><th scope="row">Запчастини в продажу</th><td>усі</td><td>окремі</td><td>окремі</td></tr>
+          <tr><th scope="row">Робота від акумулятора</th><td>14 годин</td><td>12 годин</td><td>8 годин</td></tr>
+          <tr><th scope="row">Ціна</th><td>29 900 ₴</td><td>від 20 000 ₴</td><td>від 40 000 ₴</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 8. Ціна і передзамовлення -->
   <section class="section section--dark" id="price">
     <h2 class="h2">Ціна і передзамовлення</h2>
 

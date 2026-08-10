@@ -134,9 +134,18 @@ a { color: inherit; }
   background: var(--mask);
   color: var(--silk);
   max-width: none;
+
+  /* Секція на всю ширину, вміст — в одній колонці шириною --wrap, і колонка
+     центрується цілком. Раніше тут стояло margin-inline: auto на кожній
+     дитині, і будь-який вузький абзац центрувався сам по собі, з'їжджаючи
+     від заголовка. Тепер вирівнюється колонка, а не кожен елемент окремо. */
+  display: grid;
+  grid-template-columns: minmax(0, var(--wrap));
+  justify-content: center;
+  align-content: start;
 }
 
-.section--dark > * { max-width: var(--wrap); margin-inline: auto; }
+.section--dark > * { max-width: 100%; }
 
 .h2 {
   font: 700 clamp(26px, 3.4vw, 40px)/1.1 var(--font-head);
@@ -504,6 +513,120 @@ a { color: inherit; }
 .no3d .vis__cv { display: none; }
 .no3d .lead { display: none; }
 
+/* --- 11a. Клавіатура зблизька ------------------------------------------ */
+.kb__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: clamp(20px, 4vw, 56px);
+  align-items: center;
+}
+
+/* висота зарезервована наперед, щоб canvas не смикнув розкладку при старті */
+.kb__vis {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background: var(--mask-deep);
+  border-radius: var(--r-in);
+  overflow: hidden;
+}
+
+.kb__cv { inline-size: 100%; block-size: 100%; }
+
+.kb__vis::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 100% at 50% 45%, transparent 58%, var(--mask-deep) 100%);
+}
+
+.fx-off .kb__vis::after { display: none; }
+
+.kb__lead { font-size: clamp(17px, 1.9vw, 21px); line-height: 1.45; }
+
+.kb__txt > p + p { margin-block-start: 16px; color: var(--silk-mute); }
+
+.kb__facts {
+  display: grid;
+  gap: 14px;
+  margin-block-start: 28px;
+  padding-block-start: 20px;
+  border-block-start: 2px solid var(--copper);
+}
+
+.kb__fact { display: flex; flex-direction: column; gap: 4px; }
+
+.kb__fact > dd {
+  font: 400 clamp(19px, 2.2vw, 25px)/1 var(--font-data);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.kb__fact > dt { font-size: 13px; color: var(--silk-mute); }
+
+/* --- 11b. Порти --------------------------------------------------------- */
+.pt__lead { max-width: 60ch; font-size: clamp(17px, 1.9vw, 20px); line-height: 1.45; }
+
+.pt__wrap { position: relative; margin-block-start: clamp(24px, 4vw, 44px); }
+
+.pt__vis {
+  position: relative;
+  aspect-ratio: 21 / 9;
+  background: var(--mask);
+  border-radius: var(--r-in);
+  overflow: hidden;
+}
+
+.pt__cv { inline-size: 100%; block-size: 100%; }
+
+.pt__vis::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 110% at 50% 40%, transparent 60%, var(--mask) 100%);
+}
+
+.fx-off .pt__vis::after { display: none; }
+
+.pt__labs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(12px, 2vw, 28px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  margin-block-start: 74px;
+}
+
+.pt__lab {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-block-start: 12px;
+  border-block-start: 2px solid var(--copper-ink);
+}
+
+.pt__lab > b {
+  font: 500 clamp(15px, 1.7vw, 19px)/1.2 var(--font-data);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.pt__lab > span { font-size: 13px; line-height: 1.35; color: var(--muted); }
+
+.pt__wire {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  pointer-events: none;
+}
+
+.pt__wire line,
+.pt__wire polyline { fill: none; stroke: var(--copper-ink); stroke-width: 1.5; }
+.pt__wire circle { fill: none; stroke: var(--copper-ink); stroke-width: 1.5; }
+
 /* --- 12. Таблиця -------------------------------------------------------- */
 .tbl-wrap { overflow-x: auto; }
 
@@ -512,7 +635,7 @@ a { color: inherit; }
 .tbl th,
 .tbl td {
   padding: 13px 16px 13px 0;
-  border-block-start: 1px solid var(--edge);
+  border-block-start: 1px solid var(--rule);
   vertical-align: baseline;
   text-align: start;
 }
@@ -521,12 +644,43 @@ a { color: inherit; }
   inline-size: 34%;
   font: 500 13px/1.4 var(--font-data);
   letter-spacing: 0.02em;
-  color: var(--muted);
+  color: var(--fg-dim);
   font-weight: 500;
   white-space: nowrap;
 }
 
 .tbl td { font-variant-numeric: tabular-nums; }
+
+/* --- 12a. Ремонт і порівняння ------------------------------------------- */
+.rp__lead,
+.cmp__lead { max-width: 62ch; font-size: clamp(17px, 1.9vw, 20px); line-height: 1.45; }
+
+.rp__note { max-width: 62ch; margin-block-start: 14px; color: var(--fg-dim); }
+
+.rp__fine { margin-block-start: 18px; font-size: 13px; color: var(--fg-dim); }
+
+.tbl-wrap + .rp__fine { margin-block-start: 16px; }
+
+.rp .tbl-wrap,
+.cmp .tbl-wrap { margin-block-start: clamp(22px, 3.5vw, 40px); }
+
+/* Таблиця із заголовком стовпців — на відміну від характеристик, де
+   заголовок лише в рядку. Значення «так/ні» словами, а не кольором:
+   колір як єдиний носій сенсу не читається дальтоніком і на сонці. */
+.tbl--cols thead th {
+  inline-size: auto;
+  white-space: nowrap;
+  font: 500 12px/1.2 var(--font-data);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  padding-block-end: 12px;
+  border-block-start: 0;
+}
+
+.tbl--cols tbody th { inline-size: 30%; }
+
+.tbl--cols td { white-space: nowrap; }
 
 /* --- 13. Ціна і форма --------------------------------------------------- */
 .price {
@@ -602,6 +756,52 @@ a { color: inherit; }
 .foot > p + p { margin-block-start: 8px; }
 .foot > p:first-child { color: var(--silk); }
 
+/* --- 14a. Рух ------------------------------------------------------------
+   Клас .reveal навішує JS і лише на те, що ще не потрапило в кадр. Тому без
+   JS не ховається нічого, а те, що вже видно на завантаженні, не блимає. */
+.reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 420ms ease-out, transform 420ms ease-out;
+}
+
+.reveal[data-in] { opacity: 1; transform: none; }
+
+/* Мірна лінійка: чисто декоративна, тому й aria-hidden. Позицію на сторінці
+   вже показує смуга прокрутки — це про відчуття приладу, не про навігацію. */
+.ruler {
+  position: fixed;
+  inset-block: var(--hdr) 0;
+  inset-inline-start: 10px;
+  inline-size: 22px;
+  z-index: 20;
+  pointer-events: none;
+  color: var(--copper-ink);
+  display: none;
+}
+
+.ruler__ticks {
+  position: absolute;
+  inset-block: 8px;
+  inset-inline-start: 0;
+  inline-size: 14px;
+  opacity: 0.26;
+  /* короткі поділки часто, довгі — кожні п'ять, як на справжній лінійці */
+  background:
+    repeating-linear-gradient(to bottom, currentColor 0 1px, transparent 1px 110px) 0 0 / 14px 100% no-repeat,
+    repeating-linear-gradient(to bottom, currentColor 0 1px, transparent 1px 22px) 0 0 / 7px 100% no-repeat;
+}
+
+.ruler__mark {
+  position: absolute;
+  inset-inline-start: 0;
+  inline-size: 20px;
+  block-size: 2px;
+  background: var(--copper-ink);
+  inset-block-start: calc(8px + var(--p, 0) * (100% - 16px));
+  transform: translateY(-50%);
+}
+
 /* --- 15. Утиліти -------------------------------------------------------- */
 .vh {
   position: absolute;
@@ -669,6 +869,13 @@ a { color: inherit; }
 }
 
 /* Телефон */
+@media (max-width: 900px) {
+  .kb__grid { grid-template-columns: minmax(0, 1fr); }
+  .pt__labs { grid-template-columns: minmax(0, 1fr); margin-block-start: 24px; }
+  .pt__wire { display: none; }
+  .pt__vis { aspect-ratio: 4 / 3; }
+}
+
 @media (max-width: 640px) {
   .figs { grid-template-columns: repeat(2, 1fr); }
 
@@ -678,6 +885,11 @@ a { color: inherit; }
   .price { grid-template-columns: minmax(0, 1fr); }
 
   .tbl th { inline-size: auto; white-space: normal; }
+  .tbl--cols tbody th { inline-size: auto; }
+}
+
+@media (min-width: 1240px) {
+  .ruler { display: block; }
 }
 
 /* Найвужчі екрани: у шапці тепер троє, тож стискаємо їх, а не переносимо */
@@ -725,6 +937,7 @@ a { color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .card { transition-duration: 1ms; }
+  .reveal { opacity: 1; transform: none; transition: none; }
   .fxsw__knob { transition: none; }
   .skip-track { transition: none; }
   .btn { transition: none; }

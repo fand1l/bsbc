@@ -107,6 +107,8 @@
       three.rim.intensity = dark ? 0.5 : 0.7;
       three.hemi.intensity = dark ? 0.35 : 0.6;
     }
+    if (kb) kb.renderer.toneMappingExposure = isDark() ? 0.95 : 1.15;
+    if (pt) pt.renderer.toneMappingExposure = isDark() ? 0.95 : 1.15;
     dirty = true;
     wake();
   }
@@ -143,6 +145,8 @@
       three.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCapNow));
       three.renderer.setSize(visW, visH, false);
     }
+    if (kb) kb.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, fxOn ? 2 : 1));
+    if (pt) pt.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, fxOn ? 2 : 1));
     dirty = true;
     wake();
   }
@@ -559,6 +563,50 @@
     return t;
   }
 
+  /* Передній торець. Отвір робиться рівно під роз'єм, а не на всю висоту
+     стінки: різати наскрізь простіше, але тоді в корпусі зяє щілина вчетверо
+     більша за сам порт. Стінка збирається із сегментів між отворами плюс
+     перемички над і під кожним отвором. */
+  var WALL_H = 0.42, WALL_HALF = 0.21, WALL_X = 2.00, WALL_Z = 1.07, WALL_T = 0.06;
+  var PORTS = [
+    { x: -0.95, w: 0.33,  h: 0.125 },   // USB-C
+    { x:  0.00, w: 0.215, h: 0.075 },   // microSD
+    { x:  0.95, w: 0.150, h: 0.150 }    // 3,5 мм
+  ];
+
+  function buildFront(add, matWall) {
+    var edge = -WALL_X;
+    for (var i = 0; i < PORTS.length; i++) {
+      var p = PORTS[i], hw = p.w / 2, hh = p.h / 2;
+      var segW = (p.x - hw) - edge;
+      if (segW > 0.001) add(segW, WALL_H, WALL_T, matWall, edge + segW / 2, 0, WALL_Z, 0.012);
+      // Перемички майже без фаски: інакше по всій висоті стінки проступають
+      // шви на стиках із сусідніми сегментами.
+      var fill = WALL_HALF - hh;
+      add(p.w, fill, WALL_T, matWall, p.x,  (WALL_HALF + hh) / 2, WALL_Z, 0.004);
+      add(p.w, fill, WALL_T, matWall, p.x, -(WALL_HALF + hh) / 2, WALL_Z, 0.004);
+      edge = p.x + hw;
+    }
+    if (WALL_X - edge > 0.001) {
+      add(WALL_X - edge, WALL_H, WALL_T, matWall, (edge + WALL_X) / 2, 0, WALL_Z, 0.012);
+    }
+  }
+
+  /* Коробка з фаскою по всіх ребрах. Саме фаска ловить світло вузькою
+     смужкою — це те, за чим око впізнає фрезероване з металу. */
+  function chamfer(THREE, w, h, d, c) {
+    var sh = new THREE.Shape();
+    var hw = w / 2 - c, hd = d / 2 - c;
+    sh.moveTo(-hw, -hd); sh.lineTo(hw, -hd); sh.lineTo(hw, hd); sh.lineTo(-hw, hd); sh.closePath();
+    var g = new THREE.ExtrudeGeometry(sh, {
+      depth: Math.max(0.001, h - 2 * c), bevelEnabled: true,
+      bevelSize: c, bevelThickness: c, bevelSegments: 1, curveSegments: 1, steps: 1
+    });
+    g.rotateX(-Math.PI / 2);
+    g.translate(0, -h / 2 + c, 0);
+    return g;
+  }
+
   /* --- 8. Сцена --------------------------------------------------------- */
   function noThree() {
     root.classList.add('no3d');
@@ -634,20 +682,7 @@
       layerMats.push(list);
     }
 
-    /* Коробка з фаскою по всіх ребрах. Саме фаска ловить світло вузькою
-       смужкою — це те, за чим око впізнає фрезероване з металу. */
-    function chamferGeo(w, h, d, c) {
-      var sh = new THREE.Shape();
-      var hw = w / 2 - c, hd = d / 2 - c;
-      sh.moveTo(-hw, -hd); sh.lineTo(hw, -hd); sh.lineTo(hw, hd); sh.lineTo(-hw, hd); sh.closePath();
-      var g = new THREE.ExtrudeGeometry(sh, {
-        depth: Math.max(0.001, h - 2 * c), bevelEnabled: true,
-        bevelSize: c, bevelThickness: c, bevelSegments: 1, curveSegments: 1, steps: 1
-      });
-      g.rotateX(-Math.PI / 2);
-      g.translate(0, -h / 2 + c, 0);
-      return g;
-    }
+    function chamferGeo(w, h, d, c) { return chamfer(THREE, w, h, d, c); }
 
     function part(w, h, d, mat, x, y, z, c) {
       var m = new THREE.Mesh(chamferGeo(w, h, d, c === undefined ? Math.min(0.012, h * 0.3) : c), mat);
@@ -730,17 +765,20 @@
       part(4.00, 0.050, 2.20, M5.alu, 0, -0.205, 0, 0.014),
       part(0.06, 0.42, 2.20, M5.alu, -1.97, 0, 0, 0.012),
       part(0.06, 0.42, 2.20, M5.alu,  1.97, 0, 0, 0.012),
-      part(4.00, 0.42, 0.06, M5.alu, 0, 0, -1.07, 0.012),
-      part(0.88, 0.42, 0.06, M5.alu, -1.56, 0, 1.07, 0.012),
-      part(0.68, 0.42, 0.06, M5.alu, -0.44, 0, 1.07, 0.012),
-      part(0.77, 0.42, 0.06, M5.alu,  0.485, 0, 1.07, 0.012),
-      part(0.97, 0.42, 0.06, M5.alu,  1.515, 0, 1.07, 0.012),
-      // самі роз'єми
-      part(0.32, 0.105, 0.09, M5.dark, -0.95, 0, 1.055, 0.012),
-      part(0.20, 0.055, 0.08, M5.dark,  0.00, 0, 1.055, 0.010),
-      part(0.15, 0.130, 0.08, M5.dark,  0.95, 0, 1.055, 0.020),
-      part(0.24, 0.030, 0.05, M5.cuDim, -0.95, 0, 1.045, 0.006)
+      part(4.00, 0.42, 0.06, M5.alu, 0, 0, -1.07, 0.012)
     );
+    buildFront(function (w, h, d, m, x, y, z, c) { groups[5].add(part(w, h, d, m, x, y, z, c)); }, M5.alu);
+    // самі роз'єми, кожен у своєму отворі
+    groups[5].add(
+      part(0.300, 0.098, 0.085, M5.dark, -0.95, 0, 1.062, 0.010),
+      part(0.210, 0.020, 0.050, M5.cuDim, -0.95, 0, 1.052, 0.005),
+      part(0.190, 0.055, 0.075, M5.dark,  0.00, 0, 1.062, 0.008)
+    );
+    var jackGeo = new THREE.CylinderGeometry(0.062, 0.062, 0.090, 14);
+    jackGeo.rotateX(Math.PI / 2);
+    var jack = new THREE.Mesh(jackGeo, M5.dark);
+    jack.position.set(0.95, 0, 1.062);
+    groups[5].add(jack);
     // ребра жорсткості на дні
     for (var rb = -1; rb <= 1; rb++) {
       groups[5].add(part(0.05, 0.075, 1.86, M5.aluIn, rb * 1.02, -0.145, 0, 0.010));
@@ -973,15 +1011,402 @@
     if (running) wake();
   }
 
+  /* --- 8a. Друга сцена: клавіатура зблизька -----------------------------
+     Свій рендерер, а не спільний з розбиранням. Спільний із розрізанням кадру
+     на області був би економнішим по пам'яті, але вимагав би переписати вже
+     робочу сцену. Контекст створюється лише коли секція входить у видиму
+     частину і стає на паузу, коли виходить. */
+  var kbSec = document.getElementById('keyboard');
+  var kbCv  = document.getElementById('kbcv');
+  var kb = null, kbRaf = 0, kbSeen = false;
+
+  function kbBuild(THREE) {
+    var renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas: kbCv, alpha: true, antialias: true });
+    } catch (e) { return null; }
+    renderer.setClearAlpha(0);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = isDark() ? 0.95 : 1.15;
+
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(34, 1.6, 0.05, 40);
+
+    var pmrem = new THREE.PMREMGenerator(renderer);
+    var et = envTexture(THREE);
+    scene.environment = pmrem.fromEquirectangular(et).texture;
+    et.dispose(); pmrem.dispose();
+
+    var key = new THREE.DirectionalLight(0xFFF6EC, 1.6); key.position.set(2.2, 3.4, 2.6);
+    var fill = new THREE.DirectionalLight(0xC9773F, 0.5); fill.position.set(-2.4, 0.6, -1.8);
+    scene.add(key, fill, new THREE.HemisphereLight(0xE7E4DC, 0x241C33, 0.45));
+
+    var matPlate = new THREE.MeshStandardMaterial({ color: 0x7D827E, metalness: 0.62, roughness: 0.5 });
+    var matKey   = new THREE.MeshStandardMaterial({ color: 0x24272B, metalness: 0.1, roughness: 0.52 });
+    scene.add(new THREE.Mesh(chamfer(THREE, 3.86, 0.028, 1.02, 0.012), matPlate));
+
+    // підсвітка світить із-під клавіш і видно її саме в зазорах між ними
+    var lit = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.7, 0.95),
+      new THREE.MeshBasicMaterial({
+        map: glowTexture(THREE), transparent: true, depthWrite: false,
+        blending: THREE.AdditiveBlending, color: 0xC9773F, opacity: 0, toneMapped: false
+      })
+    );
+    lit.rotation.x = -Math.PI / 2;
+    lit.position.set(0, 0.020, 0.52);
+    scene.add(lit);
+
+    var keys = new THREE.InstancedMesh(chamfer(THREE, 0.235, 0.060, 0.150, 0.016), matKey, 62);
+    var cols = [], d = new THREE.Object3D(), n = 0;
+    for (var r = 0; r < 5 && n < 62; r++) {
+      for (var c = 0; c < 13 && n < 62; c++) {
+        cols.push({ x: -1.72 + c * 0.2867, z: 0.17 + r * 0.190, c: c });
+        n++;
+      }
+    }
+    scene.add(keys);
+
+    return { renderer: renderer, scene: scene, camera: camera, keys: keys, cols: cols, d: d, lit: lit };
+  }
+
+  function kbFrame() {
+    kbRaf = requestAnimationFrame(kbFrame);
+    if (!kb) return;
+
+    var r = kbSec.getBoundingClientRect();
+    var vh = window.innerHeight || 800;
+    var q = clamp((vh - r.top) / (vh + r.height), 0, 1);
+
+    var w = Math.max(1, Math.round(kbCv.clientWidth));
+    var h = Math.max(1, Math.round(kbCv.clientHeight));
+    if (kbCv.width !== Math.round(w * kb.renderer.getPixelRatio())) {
+      kb.renderer.setSize(w, h, false);
+      kb.camera.aspect = w / h;
+      kb.camera.updateProjectionMatrix();
+    }
+
+    // повільна панорама вздовж клавіатури, прив'язана до прокрутки секції
+    var cx = -1.15 + q * 1.7;
+    kb.camera.position.set(cx - 0.28, 0.78, 1.78);
+    kb.camera.lookAt(cx + 0.16, 0.02, 0.54);
+
+    // хвиля натискань і підсвітка; під reduced-motion клавіші стоять
+    var t = reduced ? 0 : performance.now() / 1000;
+    for (var i = 0; i < kb.cols.length; i++) {
+      var k = kb.cols[i];
+      var press = reduced ? 0 : Math.max(0, Math.sin(t * 1.6 - k.c * 0.42)) ;
+      press = press > 0.78 ? (press - 0.78) / 0.22 : 0;
+      kb.d.position.set(k.x, 0.044 - press * 0.030, k.z);
+      kb.d.updateMatrix();
+      kb.keys.setMatrixAt(i, kb.d.matrix);
+    }
+    kb.keys.instanceMatrix.needsUpdate = true;
+    kb.lit.material.opacity = fxOn ? 0.30 + 0.22 * Math.sin(t * 0.7) * Math.sin(t * 0.7) : 0;
+
+    kb.renderer.render(kb.scene, kb.camera);
+  }
+
+  function kbStart() {
+    if (!window.THREE || kbRaf) return;
+    if (!kb) {
+      kb = kbBuild(window.THREE);
+      if (!kb) return;
+      kb.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, fxOn ? 2 : 1));
+    }
+    kbRaf = requestAnimationFrame(kbFrame);
+  }
+
+  function kbStop() { if (kbRaf) { cancelAnimationFrame(kbRaf); kbRaf = 0; } }
+
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (es) {
+      kbSeen = es[0].isIntersecting;
+      if (kbSeen && !document.hidden) kbStart(); else kbStop();
+    }, { rootMargin: '200px' }).observe(kbSec);
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) kbStop(); else if (kbSeen) kbStart();
+  });
+
+  /* --- 8b. Третя сцена: порти -------------------------------------------
+     Той самий принцип, що й з клавіатурою: свій контекст, лінивий старт,
+     пауза поза екраном. Виноски тут горизонтальні — від підписів під кадром
+     угору до самих роз'ємів. */
+  var ptSec  = document.getElementById('ports');
+  var ptWrap = document.getElementById('ptwrap');
+  var ptCv   = document.getElementById('ptcv');
+  var ptWire = document.getElementById('ptwire');
+  var ptLabs = Array.prototype.slice.call(ptWrap.querySelectorAll('.pt__lab'));
+  var pt = null, ptRaf = 0, ptSeen = false, ptWireOn = false;
+  var ptLines = [], ptDots = [], ptAnchorXY = [];
+
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  for (var pl = 0; pl < 3; pl++) {
+    var ln = document.createElementNS(SVGNS, 'polyline');
+    var dt2 = document.createElementNS(SVGNS, 'circle');
+    dt2.setAttribute('r', '5');
+    ptWire.appendChild(ln); ptWire.appendChild(dt2);
+    ptLines.push(ln); ptDots.push(dt2);
+  }
+
+  function ptBuild(THREE) {
+    var renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas: ptCv, alpha: true, antialias: true });
+    } catch (e) { return null; }
+    renderer.setClearAlpha(0);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = isDark() ? 0.95 : 1.15;
+
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(30, 2.3, 0.05, 60);
+
+    var pmrem = new THREE.PMREMGenerator(renderer);
+    var et = envTexture(THREE);
+    scene.environment = pmrem.fromEquirectangular(et).texture;
+    et.dispose(); pmrem.dispose();
+
+    var kl = new THREE.DirectionalLight(0xFFF6EC, 1.5); kl.position.set(2.0, 3.0, 4.0);
+    var fl = new THREE.DirectionalLight(0xC9773F, 0.55); fl.position.set(-3.0, 0.4, -2.0);
+    scene.add(kl, fl, new THREE.HemisphereLight(0xE7E4DC, 0x241C33, 0.5));
+
+    var alu  = new THREE.MeshStandardMaterial({ color: 0xAEB3AE, metalness: 0.72, roughness: 0.31 });
+    var aluD = new THREE.MeshStandardMaterial({ color: 0x7D827E, metalness: 0.62, roughness: 0.5 });
+    var dark = new THREE.MeshStandardMaterial({ color: 0x16181B, metalness: 0.2, roughness: 0.6 });
+    var cu   = new THREE.MeshStandardMaterial({ color: 0xC0703A, metalness: 0.82, roughness: 0.3 });
+
+    var dev = new THREE.Group();
+    scene.add(dev);
+    function add(w, h, d, m, x, y, z, c) {
+      var me = new THREE.Mesh(chamfer(THREE, w, h, d, c === undefined ? 0.012 : c), m);
+      me.position.set(x, y, z);
+      dev.add(me);
+      return me;
+    }
+    // зібраний пристрій: дно, бокові стінки, задня, лицева панель
+    add(4.00, 0.050, 2.20, alu, 0, -0.205, 0, 0.014);
+    add(0.06, 0.42, 2.20, alu, -1.97, 0, 0);
+    add(0.06, 0.42, 2.20, alu,  1.97, 0, 0);
+    add(4.00, 0.42, 0.06, alu, 0, 0, -1.07);
+    add(3.86, 0.032, 2.04, aluD, 0, 0.205, 0, 0.010);
+    add(3.30, 0.010, 0.70, dark, 0, 0.224, -0.52, 0.004);
+    // передній торець: отвори рівно під роз'єми
+    buildFront(add, alu);
+    add(0.300, 0.098, 0.085, dark, -0.95, 0, 1.062, 0.010);
+    add(0.210, 0.020, 0.050, cu,   -0.95, 0, 1.052, 0.005);
+    add(0.190, 0.055, 0.075, dark,  0.00, 0, 1.062, 0.008);
+    var jg = new THREE.CylinderGeometry(0.062, 0.062, 0.090, 14);
+    jg.rotateX(Math.PI / 2);
+    var jm = new THREE.Mesh(jg, dark);
+    jm.position.set(0.95, 0, 1.062);
+    dev.add(jm);
+
+    var anchors = [];
+    var apos = [[-0.95, 0.02, 1.13], [0, 0.02, 1.13], [0.95, 0.02, 1.13]];
+    for (var i = 0; i < 3; i++) {
+      var o = new THREE.Object3D();
+      o.position.set(apos[i][0], apos[i][1], apos[i][2]);
+      dev.add(o);
+      anchors.push(o);
+    }
+
+    return { renderer: renderer, scene: scene, camera: camera, dev: dev, anchors: anchors, v: new THREE.Vector3() };
+  }
+
+  function ptMeasure() {
+    ptWireOn = getComputedStyle(ptWire).display !== 'none';
+    var wr = ptWrap.getBoundingClientRect();
+    var vr = ptCv.getBoundingClientRect();
+    ptAnchorXY = ptLabs.map(function (el) {
+      var r = el.getBoundingClientRect();
+      return { x: r.left - wr.left + r.width / 2, y: r.top - wr.top - 2 };
+    });
+    pt && (pt.visOX = vr.left - wr.left, pt.visOY = vr.top - wr.top);
+  }
+
+  function ptFrame() {
+    ptRaf = requestAnimationFrame(ptFrame);
+    if (!pt) return;
+
+    var r = ptSec.getBoundingClientRect();
+    var vh = window.innerHeight || 800;
+    var q = clamp((vh - r.top) / (vh + r.height), 0, 1);
+
+    var w = Math.max(1, Math.round(ptCv.clientWidth));
+    var h = Math.max(1, Math.round(ptCv.clientHeight));
+    if (ptCv.width !== Math.round(w * pt.renderer.getPixelRatio())) {
+      pt.renderer.setSize(w, h, false);
+      pt.camera.aspect = w / h;
+      pt.camera.updateProjectionMatrix();
+      ptMeasure();
+    }
+
+    pt.dev.rotation.y = (reduced ? 0.14 : -0.16 + q * 0.36);
+    var dist = w / h < 1.5 ? 5.9 : 4.7;
+    pt.camera.position.set(0, 0.50 + q * 0.10, dist);
+    pt.camera.lookAt(0, -0.03, 0.72);
+
+    pt.renderer.render(pt.scene, pt.camera);
+
+    if (!ptWireOn) return;
+    pt.camera.updateMatrixWorld(true);
+    pt.scene.updateMatrixWorld(true);
+    for (var i = 0; i < 3; i++) {
+      pt.anchors[i].getWorldPosition(pt.v);
+      pt.v.project(pt.camera);
+      var vis3 = pt.v.z <= 1 && Math.abs(pt.v.x) < 0.99 && Math.abs(pt.v.y) < 0.99;
+      ptLines[i].style.opacity = ptDots[i].style.opacity = vis3 ? '1' : '0';
+      if (!vis3) continue;
+      var x = pt.visOX + (pt.v.x * 0.5 + 0.5) * w;
+      var y = pt.visOY + (-pt.v.y * 0.5 + 0.5) * h;
+      var a = ptAnchorXY[i] || { x: x, y: y + 40 };
+      ptLines[i].setAttribute('points',
+        a.x + ',' + a.y + ' ' + a.x + ',' + (a.y - 18) + ' ' + x.toFixed(1) + ',' + y.toFixed(1));
+      ptDots[i].setAttribute('cx', x.toFixed(1));
+      ptDots[i].setAttribute('cy', y.toFixed(1));
+    }
+  }
+
+  function ptStart() {
+    if (!window.THREE || ptRaf) return;
+    if (!pt) {
+      pt = ptBuild(window.THREE);
+      if (!pt) return;
+      pt.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, fxOn ? 2 : 1));
+      ptMeasure();
+    }
+    ptRaf = requestAnimationFrame(ptFrame);
+  }
+
+  function ptStop() { if (ptRaf) { cancelAnimationFrame(ptRaf); ptRaf = 0; } }
+
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (es) {
+      ptSeen = es[0].isIntersecting;
+      if (ptSeen && !document.hidden) ptStart(); else ptStop();
+    }, { rootMargin: '200px' }).observe(ptSec);
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) ptStop(); else if (ptSeen) ptStart();
+  });
+
+  window.addEventListener('resize', ptMeasure);
+
+  /* --- 8c. Рух у 2D ------------------------------------------------------
+     Три речі: поява блоків, дорахунок цифр і мірна лінійка. Усе через
+     IntersectionObserver і один rAF — жодних обчислень в обробнику скролу. */
+  var REVEAL = '.h2, .hero__lead, .hero__acts, .figs, .kb__lead, .kb__facts, ' +
+               '.pt__lead, .pt__labs, .rp__lead, .cmp__lead, .tbl-wrap, .price, .form';
+
+  function initReveal() {
+    if (!('IntersectionObserver' in window)) return;
+    var vh = window.innerHeight || 800;
+    var io = new IntersectionObserver(function (es) {
+      for (var i = 0; i < es.length; i++) {
+        if (!es[i].isIntersecting) continue;
+        es[i].target.setAttribute('data-in', '');
+        io.unobserve(es[i].target);
+      }
+    }, { rootMargin: '0px 0px -8% 0px' });
+
+    var nodes = document.querySelectorAll(REVEAL);
+    for (var i = 0; i < nodes.length; i++) {
+      // те, що вже в кадрі на завантаженні, не ховаємо взагалі — інакше
+      // сторінка блимне порожнечею, поки не спрацює спостерігач
+      if (nodes[i].getBoundingClientRect().top > vh * 0.92) {
+        nodes[i].classList.add('reveal');
+        io.observe(nodes[i]);
+      }
+    }
+  }
+
+  /* Дорахунок цифр. Тільки там, де значення ціле: «1,2 мм» рахувати нема сенсу,
+     а розряди тисяч мусять лишитися з нерозривним пробілом. */
+  function initCount() {
+    var nodes = document.querySelectorAll('.fig__v, .price__v');
+    if (!nodes.length) return;
+
+    function fmt(n) {
+      var t = String(n), out = '', c = 0;
+      for (var i = t.length - 1; i >= 0; i--) {
+        out = t.charAt(i) + out;
+        if (++c % 3 === 0 && i > 0) out = '\u00A0' + out;
+      }
+      return out;
+    }
+
+    var io = ('IntersectionObserver' in window) ? new IntersectionObserver(function (es) {
+      for (var i = 0; i < es.length; i++) if (es[i].isIntersecting) { run(es[i].target); io.unobserve(es[i].target); }
+    }, { rootMargin: '0px 0px -10% 0px' }) : null;
+
+    function run(el) {
+      var target = +el.getAttribute('data-n');
+      var tail = el.getAttribute('data-tail') || '';
+      if (reduced) { el.textContent = fmt(target) + tail; return; }
+      var t0 = performance.now(), dur = 750, done = false;
+      function finish() { if (!done) { done = true; el.textContent = fmt(target) + tail; } }
+      // Запобіжник: якщо кадри перестали приходити — вкладка сховалась, пристрій
+      // ледь тягне — цифра не має лишитися недорахованою.
+      setTimeout(finish, dur + 400);
+      (function step(now) {
+        if (done) return;
+        var u = clamp((now - t0) / dur, 0, 1);
+        if (u >= 1) { finish(); return; }
+        el.textContent = fmt(Math.round(target * (1 - Math.pow(1 - u, 3)))) + tail;
+        requestAnimationFrame(step);
+      })(t0);
+    }
+
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var m = el.textContent.match(/^([\d\u00A0 ]*\d)([\s\S]*)$/);
+      if (!m) continue;
+      el.setAttribute('data-n', m[1].replace(/\D/g, ''));
+      el.setAttribute('data-tail', m[2]);
+      if (io && el.getBoundingClientRect().top > (window.innerHeight || 800)) {
+        el.textContent = '0' + m[2];
+        io.observe(el);
+      } else {
+        run(el);
+      }
+    }
+  }
+
+  /* Мірна лінійка: обробник скролу лише просить кадр, пише — rAF. */
+  var ruler = document.getElementById('ruler');
+  var rulerQueued = false;
+
+  function drawRuler() {
+    rulerQueued = false;
+    var doc = document.documentElement;
+    var max = doc.scrollHeight - doc.clientHeight;
+    ruler.style.setProperty('--p', max > 0 ? (window.scrollY / max).toFixed(4) : '0');
+  }
+
+  window.addEventListener('scroll', function () {
+    if (rulerQueued) return;
+    rulerQueued = true;
+    requestAnimationFrame(drawRuler);
+  }, { passive: true });
+
+  window.addEventListener('resize', drawRuler);
+  drawRuler();
+
   /* --- 9. Старт --------------------------------------------------------- */
   labelTheme();
   applyFx();
+  initReveal();
+  initCount();
   setActive(0);
   measure();
   wake();
 
-  if (window.THREE) initThree();
-  else window.addEventListener('three:ready', initThree, { once: true });
+  function bootScenes() { initThree(); if (kbSeen) kbStart(); if (ptSeen) ptStart(); }
+  if (window.THREE) bootScenes();
+  else window.addEventListener('three:ready', bootScenes, { once: true });
 
   setTimeout(function () { if (!three && !root.classList.contains('no3d')) noThree(); }, 4000);
 })();
