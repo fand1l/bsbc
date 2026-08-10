@@ -55,6 +55,8 @@
   var flats  = Array.prototype.slice.call(flat.querySelectorAll('.flat__p'));
   var screwsBox = document.getElementById('screws');
   var themeBtn  = document.getElementById('theme');
+  var fxBtn     = document.getElementById('fx');
+  var fxVal     = document.getElementById('fxval');
   var ann    = document.getElementById('ann');
   var root   = document.documentElement;
 
@@ -72,6 +74,7 @@
   var annTimer = 0, lastDrawn = -1, staticMode = false;
   var stickyPx = 0, denom = 0;
   var dims = [1, 0.4, 0.4, 0.4, 0.4, 0.4], dimsPrev = [-1, -1, -1, -1, -1, -1];
+  var fxOn = true, fxManual = false;
   var perfN = 0, perfSum = 0, perfSteps = 0, dprCapNow = 2;
 
   for (var gi = 0; gi < 5; gi++) {
@@ -116,6 +119,41 @@
   });
 
   themeMQ.addEventListener('change', function () { if (!root.dataset.theme) onTheme(); });
+
+  /* --- 1a. Якість проти швидкості --------------------------------------
+     Тумблер керує трьома речами одразу: світінням екрана, віньєткою й
+     роздільною здатністю рендера. Ручний вибір вимикає автоматичне
+     зниження якості — якщо людина свідомо просить «якість», сторінка не
+     має мовчки відбирати її назад. */
+  try {
+    var savedFx = localStorage.getItem('k1-fx');
+    if (savedFx === 'on' || savedFx === 'off') { fxOn = savedFx === 'on'; fxManual = true; }
+  } catch (e) { /* приватний режим */ }
+
+  function applyFx() {
+    root.classList.toggle('fx-off', !fxOn);
+    fxBtn.setAttribute('aria-checked', fxOn ? 'true' : 'false');
+    fxVal.textContent = fxOn ? 'якість' : 'швидкість';
+    if (three) {
+      if (three.glow) three.glow.visible = fxOn;
+      for (var i = 0; i < three.shadows.length; i++) {
+        if (!fxOn) three.shadows[i].mesh.visible = false;
+      }
+      dprCapNow = fxOn ? (window.innerWidth < 768 ? 1.5 : 2) : 1;
+      three.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCapNow));
+      three.renderer.setSize(visW, visH, false);
+    }
+    dirty = true;
+    wake();
+  }
+
+  fxBtn.addEventListener('click', function () {
+    fxOn = !fxOn;
+    fxManual = true;
+    perfSteps = 2;               // людина вирішила сама — більше не втручаємось
+    try { localStorage.setItem('k1-fx', fxOn ? 'on' : 'off'); } catch (e) { /* приватний режим */ }
+    applyFx();
+  });
 
   /* --- 2. Гвинти-індикатори -------------------------------------------- */
   var SCREW_SVG =
@@ -243,7 +281,7 @@
      вдвічі знижується роздільна здатність рендера. Вигляд лишається той
      самий — падає лише кількість пікселів, а не якість матеріалів. */
   function watchPerf(dt) {
-    if (perfSteps >= 2 || dt <= 0 || dt > 1) return;
+    if (fxManual || perfSteps >= 2 || dt <= 0 || dt > 1) return;
     perfSum += dt; perfN++;
     if (perfN < 10 || perfSum < 1.2) return;
     var avg = perfSum / perfN;
@@ -472,6 +510,17 @@
     g.addColorStop(0, 'rgba(0,0,0,0.85)');
     g.addColorStop(0.55, 'rgba(0,0,0,0.42)');
     g.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  }
+
+  // М'яке світіння над матрицею — дешевша заміна повного bloom
+  function glowTexture(THREE) {
+    var c = cv(128, 128), x = c.getContext('2d');
+    var g = x.createRadialGradient(64, 64, 2, 64, 64, 62);
+    g.addColorStop(0, 'rgba(150,200,230,0.9)');
+    g.addColorStop(0.45, 'rgba(110,165,205,0.32)');
+    g.addColorStop(1, 'rgba(90,140,190,0)');
     x.fillStyle = g; x.fillRect(0, 0, 128, 128);
     return new THREE.CanvasTexture(c);
   }
@@ -738,6 +787,22 @@
       shadows.push({ mesh: pl, mat: sm, spec: S });
     }
 
+    /* Світіння екрана. Повний ланцюг постобробки заради однієї яскравої
+       ділянки коштував би ще чотирьох запитів до CDN і ламався б на
+       прозорому тлі; адитивний квадрат дає той самий ефект задарма. */
+    var glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        map: glowTexture(THREE), transparent: true, depthWrite: false,
+        blending: THREE.AdditiveBlending, opacity: 0.6, toneMapped: false
+      })
+    );
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.set(0, 0.042, -0.52);
+    glow.scale.set(3.9, 1.25, 1);
+    glow.renderOrder = 2;
+    groups[0].add(glow);
+
     var ap = [
       [1.86, 0.03, -0.85], [1.86, 0.03, 0.85], [1.82, 0.04, 0.85],
       [1.48, 0.09, 0.80], [1.78, 0.05, 0.90], [1.94, 0.20, 1.02]
@@ -751,7 +816,7 @@
 
     return {
       scene: scene, camera: camera, groups: groups, anchors: anchors,
-      mats: allMats, layerMats: layerMats, shadows: shadows,
+      mats: allMats, layerMats: layerMats, shadows: shadows, glow: glow,
       hemi: hemi, key: key, rim: rim,
       caseScrews: caseScrews, screwPos: screwPos, dummy: dummy,
       vec: new THREE.Vector3()
@@ -786,13 +851,15 @@
       }
     }
 
+    if (three.glow.visible) three.glow.material.opacity = 0.22 + 0.5 * dims[0];
+
     // М'яка тінь верхньої деталі на тій, що під нею: щільна, поки вони поруч,
     // і розмита та бліда, коли роз'їхалися.
     for (var sI = 0; sI < three.shadows.length; sI++) {
       var sh = three.shadows[sI], S = sh.spec;
       var gap = (ys[S.from] - LAYERS[S.from].half) - (ys[S.to] + LAYERS[S.to].half);
       var op = 0.55 * (1 - clamp(gap / 1.1, 0, 1)) * (0.35 + 0.65 * dims[S.to]);
-      sh.mesh.visible = op > 0.012;
+      sh.mesh.visible = fxOn && op > 0.012;
       if (!sh.mesh.visible) continue;
       sh.mat.opacity = op;
       var kk = clamp(1 + gap * 0.22, 0.95, 1.7);
@@ -886,7 +953,7 @@
     three = {
       renderer: renderer, scene: built.scene, camera: built.camera,
       groups: built.groups, anchors: built.anchors, mats: built.mats,
-      layerMats: built.layerMats, shadows: built.shadows,
+      layerMats: built.layerMats, shadows: built.shadows, glow: built.glow,
       hemi: built.hemi, key: built.key, rim: built.rim,
       caseScrews: built.caseScrews, screwPos: built.screwPos, dummy: built.dummy,
       vec: built.vec
@@ -900,6 +967,7 @@
     canvas.addEventListener('webglcontextrestored', function () { if (running) wake(); });
 
     onTheme();
+    applyFx();
     measure();
     dirty = true;
     if (running) wake();
@@ -907,6 +975,7 @@
 
   /* --- 9. Старт --------------------------------------------------------- */
   labelTheme();
+  applyFx();
   setActive(0);
   measure();
   wake();
